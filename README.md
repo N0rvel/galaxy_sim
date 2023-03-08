@@ -5,7 +5,7 @@ This project is a simulation of thousands of particles that reproduce gravity to
 ![Aperçu du projet](https://i.imgur.com/4NpWBF9.jpeg)
 
 # Demo
-Live demo here: https://galaxym.lassara.fr
+Live demo here: https://galaxym.ovh
 
 ## Usage
 
