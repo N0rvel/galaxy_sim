@@ -23,13 +23,11 @@ Live demo here: https://galaxym.lassara.fr
 
 -   A camera controled with the mouse and wheel to zoom-in/zoom-out
     
+-   It can simulate an entire expanding universe :
+    ![Aperçu du projet](https://i.imgur.com/W1AqYoJ.png)
 
 -   It can simulate a unique galaxy :
     ![Aperçu du projet](https://i.imgur.com/cUygkAD.png)
-    
-
--   It can simulate an entire expanding universe :
-    ![Aperçu du projet](https://i.imgur.com/OheJjGC.png)
     
 
 -   It can simulate the collision between two galaxies :
