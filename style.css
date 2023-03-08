@@ -1,0 +1,114 @@
+body{
+  margin: 0;
+}
+
+a{
+  display: block;
+  text-decoration: inherit; /* no underline */
+  font-family: "Inter var",ui-sans-serif,system-ui,-apple-system,system-ui,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";
+  font-size: 1.125rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: .75rem;
+  box-sizing: border-box;
+  color: #FFFFFF;
+  width: 520px;
+  background-color: #111827;
+  padding: 14px;
+  height: 77px;
+  fill: #FFFFFF;
+}
+
+.dg li:not(.folder){
+  background: #1a1a1ad1!important;
+}
+
+.main-container{
+  height: 100vh;
+  background: black;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.button-container{
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  z-index: 1;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.calque{
+  z-index: 1;
+  width: 100vw;
+  height: 100vh;
+}
+
+.container-buttons{
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  z-index: 1;
+  margin-top: 415px;
+  flex-wrap: wrap;
+}
+
+.button-svg{
+  display: flex;
+  align-items: center;
+}
+
+.button-svg span{
+  margin-left: 20px;
+}
+
+.button {
+  margin: 0 10px 10px 10px;
+  background-color: #111827;
+  border: 1px solid transparent;
+  border-radius: .75rem;
+  box-sizing: border-box;
+  color: #FFFFFF;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-family: "Inter var",ui-sans-serif,system-ui,-apple-system,system-ui,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.5rem;
+  padding: .75rem 1.2rem;
+  text-align: center;
+  text-decoration: none #6B7280 solid;
+  text-decoration-thickness: auto;
+  transition-duration: .2s;
+  transition-property: background-color,border-color,color,fill,stroke;
+  transition-timing-function: cubic-bezier(.4, 0, 0.2, 1);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  width: 250px;
+}
+
+.button:hover, a:hover{
+  background-color: #374151;
+  cursor: pointer;
+}
+
+.button:focus {
+  box-shadow: none;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+.small{
+  font-size: 11px;
+}
+
+#fontVideo{
+  max-height: 1080px;
+  max-width: 1920px;
+  height: 100vh;
+  width: 100vw;
+  object-fit: cover;
+  position: fixed;
+}
