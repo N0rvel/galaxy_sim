@@ -302,6 +302,7 @@ function initParticles(typeOfSimulation) {
     }
 
     particles = new THREE.Points( geometry, material );
+    particles.frustumCulled = false;
     particles.matrixAutoUpdate = false;
     particles.updateMatrix();
     scene.add( particles );
