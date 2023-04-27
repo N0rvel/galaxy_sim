@@ -70,7 +70,6 @@ void main()	{
 
     // Update the velocity based on the acceleration and elapsed time
     vel += timeStep * acceleration;
-    // Check if the acceleration exceeds the maximum value
 
     // Store the acceleration in the fourth component of the output color
     accColor = length(acceleration);

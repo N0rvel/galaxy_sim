@@ -10,12 +10,13 @@ void main() {
 
     vec4 tmpVel = texture2D( textureVelocity, uv );
     vec3 vel = tmpVel.xyz;
-    float mass = tmpVel.w;
 
     // Dynamics
     if (pos.x != 0.0 && pos.y != 0.0 && pos.z != 0.0){
         pos += vel * delta;
     }
-    gl_FragColor = vec4( pos, 1.0 );
+
+    // Output the positions and isDarkMatter in the output color
+    gl_FragColor = vec4( pos, tmpPos.w);
 }
 `
