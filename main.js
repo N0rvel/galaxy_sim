@@ -763,8 +763,8 @@ function switchSimulation(){
                     timeStep: timeStep,
                     blackHoleForce: blackHoleForce,
                     luminosity: constLuminosity,
-                    maxAccelerationColor: 50.0,
-                    maxAccelerationColorPercent: 5.0,
+                    maxAccelerationColor: 15.0,
+                    maxAccelerationColorPercent: 1.5,
                     motionBlur: false,
                     hideDarkMatter: false,
 
