@@ -58,6 +58,9 @@ void main()	{
     // Sticky particle accumulators: summed inelastic collision impulses
     vec3 stickyImpulse = vec3( 0.0 );
     float collisionCount = 0.0;
+    // Gas neighbors inside the collision radius: local density proxy used by the
+    // render shader to make compressed gas (spiral arms) glow
+    float neighborCount = 0.0;
 
     float softeningSq = uSoftening * uSoftening;
     float stickyRadiusSq = uStickyRadius * uStickyRadius;
@@ -105,6 +108,7 @@ void main()	{
             // damped, so orbital shear and rotation are preserved: the gas dissipates
             // into thin arms and filaments instead of collapsing into pointlike clumps.
             if ( isGas && tmpPos2.w > 0.5 && distanceSq < stickyRadiusSq && distanceSq > 0.0 ) {
+                neighborCount += 1.0;
                 float dist = sqrt( distanceSq );
                 vec3 dir = dPos / dist;
                 vec3 vel2 = texture2D( textureVelocity, secondParticleCoords ).xyz;
@@ -138,11 +142,13 @@ void main()	{
         vel += uStickiness * stickyImpulse / collisionCount;
     }
 
-    // Store the acceleration in the fourth component of the output color
-    accColor = length( acceleration );
-    if ( accColor > uMaxAccelerationColor ) {
-        // If it does, set it to the maximum value
-        accColor = uMaxAccelerationColor;
+    // Store the acceleration in the fourth component of the output color.
+    // Gas particles store their local density (neighbor count) instead: the
+    // render shader uses it to highlight compressed gas in the spiral arms.
+    if ( isGas ) {
+        accColor = neighborCount;
+    } else {
+        accColor = min( length( acceleration ), uMaxAccelerationColor );
     }
 
     // Output the velocity and acceleration in the output color

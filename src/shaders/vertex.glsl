@@ -19,6 +19,10 @@ uniform float uHideDarkMatter;
 uniform float uGasMode;
 // World-space particle size; 0.0 falls back to 1-pixel points
 uniform float uParticleSize;
+// Gas rendering: overall gas glow strength and the neighbor count at which
+// gas is considered "dense" (compressed in a spiral arm)
+uniform float uGasBrightness;
+uniform float uGasDensityScale;
 
 // Declare varying variable for color
 varying vec4 vColor;
@@ -40,15 +44,18 @@ void main() {
     vec3 vel = velTemp.xyz;
     float acc = velTemp.w;
 
+    // In galaxy modes the position w component flags gas particles
+    bool isGas = uGasMode > 0.5 && hideDarkMatter > 0.5;
+
     vec4 mvPosition = modelViewMatrix * vec4( pos, 1.0 );
 
     /**
      * Size
      */
-     // Perspective-correct world-space size; gas clouds are drawn bigger and softer
-     // than stars. Clamped to 1 pixel minimum (matches the old fixed-size look).
-     float worldSize = uParticleSize * (hideDarkMatter > 0.5 && uGasMode == 1.0 ? 1.8 : 1.0);
-     gl_PointSize = max( worldSize * cameraConstant / ( - mvPosition.z ), 1.0 );
+     // Perspective-correct world-space size, clamped to 1 pixel minimum
+     // (matches the old fixed-size look). Gas clouds render slightly larger
+     // than stars for a diffuse, nebular look.
+     gl_PointSize = max( uParticleSize * ( isGas ? 1.5 : 1.0 ) * cameraConstant / ( - mvPosition.z ), 1.0 );
 
     // Calculate the final position of the particle using the projection matrix
     gl_Position = projectionMatrix * mvPosition;
@@ -59,16 +66,21 @@ void main() {
     // Declare colors for low and high acceleration vec3(1.,0.843,0.388)
     vec3 hightAccelerationColor= vec3(1.,0.376,0.188);
     vec3 lowAccelerationColor= vec3(0.012,0.063,0.988);
-    // Gas clouds are drawn colder / bluer than stars
-    vec3 gasHighColor = vec3(0.85,0.95,1.0);
-    vec3 gasLowColor = vec3(0.15,0.45,1.0);
     vec3 finalColor = vec3(0.0,0.0,0.0);
-    if(uGasMode == 1.0 && hideDarkMatter == 1.0) {
-        // Gas particle (the hide toggle hides gas in galaxy modes)
+    if(isGas) {
+        // Gas particle: acc holds the local gas density (neighbor count).
+        // Spiral density waves compress the gas in the arms, which in real
+        // galaxies lights up as young blue stars and HII regions - so dense
+        // gas glows bright violet while diffuse gas stays a faint deep blue.
+        // (the hide toggle hides gas in galaxy modes)
         if(uHideDarkMatter == 1.0){
             finalColor = vec3(0.0,0.0,0.0);
         } else {
-            finalColor = mix(gasLowColor, gasHighColor, normalized(acc));
+            float density = 1.0 - exp( -acc / uGasDensityScale );
+            vec3 gasDiffuseColor = vec3(0.07, 0.05, 0.35);
+            vec3 gasDenseColor = vec3(0.55, 0.35, 1.0);
+            finalColor = mix(gasDiffuseColor, gasDenseColor, density)
+                       * uGasBrightness * (0.3 + 1.7 * density);
         }
     } else if(uHideDarkMatter == 1.0) {
         if(hideDarkMatter == 0.0){

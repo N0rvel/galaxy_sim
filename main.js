@@ -44,8 +44,8 @@ const interactionRate = 1.0;
 const timeStep = 0.001;
 const blackHoleForce = 100.0;
 const constLuminosity = 1.0;
-// Brute-force N^2 gravity on the GPU: ~50k particles (must stay a perfect square, 224^2)
-const numberOfStars = 50176;
+// Brute-force N^2 gravity on the GPU: ~100k particles (must stay a perfect square, 316^2)
+const numberOfStars = 99856;
 const radius = 100;
 const height = 5;
 const middleVelocity = 2;
@@ -80,10 +80,12 @@ blendPass.uniforms["mixRatio"].value = 0.5;
 const outputPass = new ShaderPass(CopyShader);
 outputPass.renderToScreen = true;
 
+// Experimental-mode galaxy preset, tuned for stable spiral arms:
+// ~100k particles, sticky gas, moderate dark matter halo
 effectController = {
     // Can be changed dynamically
     gravity: gravity,
-    interactionRate: interactionRate,
+    interactionRate: 0.479,
     timeStep: timeStep,
     blackHoleForce: blackHoleForce,
     luminosity: constLuminosity,
@@ -91,6 +93,11 @@ effectController = {
     maxAccelerationColorPercent: 5,
     motionBlur: false,
     hideDarkMatter: false,
+    stickiness: 0.3,
+    stickyRadius: 2.8,
+    gasPressure: 5.0,
+    gasFraction: 0.3,
+    haloMassFactor: 3.0,
 
     // Must restart simulation
     numberOfStars: numberOfStars,
@@ -163,6 +170,18 @@ function applyPhysicsDefaults(controller) {
     if (controller.haloMassFactor === undefined) controller.haloMassFactor = controller.typeOfSimulation === 1 ? 3.0 : 0.0;
     // World-space particle sprite size (0 = plain 1-pixel points, used in universe mode)
     if (controller.particleSize === undefined) controller.particleSize = isGalaxyMode ? 0.25 : 0.0;
+    // Gas rendering: dense (compressed) gas glows bright violet to highlight the
+    // spiral arms, mimicking the young blue stars / HII regions that trace arms
+    // in real galaxies. gasDensityScale is the neighbor count treated as "dense";
+    // its default matches the expected mean neighbor count so the arm contrast
+    // stays similar across particle counts and modes.
+    if (controller.gasBrightness === undefined) controller.gasBrightness = 1.4;
+    if (controller.gasDensityScale === undefined) {
+        const meanNeighbors = 3.0 * controller.numberOfStars * controller.gasFraction
+            * controller.interactionRate * controller.interactionRate
+            * Math.pow(controller.stickyRadius / controller.radius, 2);
+        controller.gasDensityScale = Math.max(2.0, meanNeighbors);
+    }
 }
 
 /**
@@ -357,8 +376,10 @@ function makeDisk(count, blackHoleMass, includeHalo) {
         }
         // Inward in-plane (radial) component of the disk acceleration
         let accel = -(ax * x[i] + az * z[i]) / rCyl * massPerSource;
-        // Analytic central terms: black hole and static Einasto halo
-        accel += G * blackHoleMass / (R * R + softeningSq);
+        // Analytic central terms: black hole and static Einasto halo.
+        // The black hole uses the same Plummer-softened law as the shader
+        // (GM * R / (R^2 + s^2)^1.5), which vanishes at R = 0 instead of diverging.
+        accel += G * blackHoleMass * R / Math.pow(R * R + softeningSq, 1.5);
         if (haloGM > 0) {
             accel += haloGM * einastoMassFraction(R, haloRs, EINASTO_ALPHA) / (R * R + softeningSq);
         }
@@ -540,6 +561,8 @@ function initParticles(typeOfSimulation) {
         'uHideDarkMatter' : { value: effectController.hideDarkMatter},
         'uGasMode' : { value: effectController.typeOfSimulation === 2 ? 0.0 : 1.0},
         'uParticleSize' : { value: effectController.particleSize},
+        'uGasBrightness' : { value: effectController.gasBrightness},
+        'uGasDensityScale' : { value: effectController.gasDensityScale},
     };
 
     // THREE.ShaderMaterial
@@ -808,6 +831,8 @@ function initGUI() {
         if (effectController.typeOfSimulation === 1){
             folder1.add( effectController, 'haloMassFactor', 0.0, 10.0, 0.1 ).onChange( dynamicValuesChanger ).name("Dark matter halo mass (x stars)");
         }
+        folderGraphicSettings.add( effectController, 'gasBrightness', 0.0, 4.0, 0.05 ).name("Gas glow (arms)");
+        folderGraphicSettings.add( effectController, 'gasDensityScale', 1.0, 100.0, 0.5 ).name("Gas glow threshold");
         folderGraphicSettings.add( effectController, 'maxAccelerationColorPercent', 0.01, 100, 0.01 ).onChange(  function ( value ) {
             effectController.maxAccelerationColor = value * 10;
             dynamicValuesChanger();
@@ -1000,7 +1025,7 @@ function switchSimulation(){
                 effectController = {
                     // Can be changed dynamically
                     gravity: gravity,
-                    interactionRate: interactionRate,
+                    interactionRate: 0.479,
                     timeStep: timeStep,
                     blackHoleForce: blackHoleForce,
                     luminosity: constLuminosity,
@@ -1008,6 +1033,11 @@ function switchSimulation(){
                     maxAccelerationColorPercent: 5.0,
                     motionBlur: false,
                     hideDarkMatter: false,
+                    stickiness: 0.3,
+                    stickyRadius: 2.8,
+                    gasPressure: 5.0,
+                    gasFraction: 0.4,
+                    haloMassFactor: 3.0,
 
                     // Must restart simulation
                     numberOfStars: numberOfStars,
@@ -1112,11 +1142,56 @@ function animate() {
     stats.update();
 }
 
+/**
+ * Run the two compute passes with semi-implicit (symplectic) Euler coupling.
+ *
+ * gpuCompute.compute() would feed BOTH passes the previous frame's textures, so
+ * the position pass would integrate with the OLD velocity (explicit Euler).
+ * Explicit Euler injects energy every frame proportionally to the square of the
+ * orbital frequency: the galaxy center (fastest orbits) empties into a ring
+ * within one orbital period and the disk slowly evaporates. Feeding the
+ * position pass the freshly computed velocity instead makes the integrator
+ * symplectic and orbits stable.
+ */
+function computeSemiImplicit() {
+    const cur = gpuCompute.currentTextureIndex;
+    const nxt = cur === 0 ? 1 : 0;
+
+    // Velocity pass: reads previous position and velocity
+    const velUniforms = velocityVariable.material.uniforms;
+    velUniforms['texturePosition'].value = positionVariable.renderTargets[cur].texture;
+    velUniforms['textureVelocity'].value = velocityVariable.renderTargets[cur].texture;
+    gpuCompute.doRenderTarget(velocityVariable.material, velocityVariable.renderTargets[nxt]);
+
+    // Position pass: reads previous position but the NEW velocity
+    const posUniforms = positionVariable.material.uniforms;
+    posUniforms['texturePosition'].value = positionVariable.renderTargets[cur].texture;
+    posUniforms['textureVelocity'].value = velocityVariable.renderTargets[nxt].texture;
+    gpuCompute.doRenderTarget(positionVariable.material, positionVariable.renderTargets[nxt]);
+
+    gpuCompute.currentTextureIndex = nxt;
+}
+
+// The shaders integrate a fixed 1/30 s timestep per compute step, so stepping
+// once per display frame ties simulation speed to the monitor refresh rate
+// (a 240 Hz screen runs 8x faster). Step the physics at a wall-clock 30 Hz
+// instead. On displays slower than 30 Hz the simulation slows down rather than
+// running several catch-up steps per frame: each step costs a full N-body
+// compute pass, so catching up would only drop the frame rate further.
+const PHYSICS_INTERVAL_MS = 1000 / 60;
+let nextPhysicsTime = 0;
+
 function render() {
     if (!paused){
-        gpuCompute.compute();
-        particleUniforms[ 'texturePosition' ].value = gpuCompute.getCurrentRenderTarget( positionVariable ).texture;
-        particleUniforms[ 'textureVelocity' ].value = gpuCompute.getCurrentRenderTarget( velocityVariable ).texture;
+        const now = performance.now();
+        if (now >= nextPhysicsTime) {
+            // Keep the 30 Hz cadence; if we fell behind by more than one
+            // interval (hidden tab, pause, slow frame), skip the missed steps
+            nextPhysicsTime = Math.max(nextPhysicsTime + PHYSICS_INTERVAL_MS, now);
+            computeSemiImplicit();
+            particleUniforms[ 'texturePosition' ].value = gpuCompute.getCurrentRenderTarget( positionVariable ).texture;
+            particleUniforms[ 'textureVelocity' ].value = gpuCompute.getCurrentRenderTarget( velocityVariable ).texture;
+        }
         material.uniforms.uMaxAccelerationColor.value = effectController.maxAccelerationColor;
     }
     if (effectController.motionBlur){
@@ -1134,6 +1209,8 @@ function render() {
     material.uniforms.uLuminosity.value = effectController.luminosity;
     material.uniforms.uHideDarkMatter.value = effectController.hideDarkMatter;
     material.uniforms.uParticleSize.value = effectController.particleSize;
+    material.uniforms.uGasBrightness.value = effectController.gasBrightness;
+    material.uniforms.uGasDensityScale.value = effectController.gasDensityScale;
     composer.render(scene, camera);
 
 }
