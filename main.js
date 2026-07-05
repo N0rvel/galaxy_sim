@@ -32,7 +32,7 @@ let controls;
 let luminosity;
 let paused = false;
 let autoRotation = true;
-let bloom = { strength: 1.0};
+let bloom = { strength: 0.6};
 let bloomPass;
 // motion blur
 let renderTargetParameters;
@@ -89,8 +89,9 @@ effectController = {
     timeStep: timeStep,
     blackHoleForce: blackHoleForce,
     luminosity: constLuminosity,
-    maxAccelerationColor: 50.0,
-    maxAccelerationColorPercent: 5,
+    // Slider "Colors mix (%)" maps percent * 10 to this value in galaxy mode
+    maxAccelerationColor: 1000.0,
+    maxAccelerationColorPercent: 100,
     motionBlur: false,
     hideDarkMatter: false,
     stickiness: 0.3,
@@ -173,15 +174,8 @@ function applyPhysicsDefaults(controller) {
     // Gas rendering: dense (compressed) gas glows bright violet to highlight the
     // spiral arms, mimicking the young blue stars / HII regions that trace arms
     // in real galaxies. gasDensityScale is the neighbor count treated as "dense";
-    // its default matches the expected mean neighbor count so the arm contrast
-    // stays similar across particle counts and modes.
-    if (controller.gasBrightness === undefined) controller.gasBrightness = 1.4;
-    if (controller.gasDensityScale === undefined) {
-        const meanNeighbors = 3.0 * controller.numberOfStars * controller.gasFraction
-            * controller.interactionRate * controller.interactionRate
-            * Math.pow(controller.stickyRadius / controller.radius, 2);
-        controller.gasDensityScale = Math.max(2.0, meanNeighbors);
-    }
+    if (controller.gasBrightness === undefined) controller.gasBrightness = 1;
+    if (controller.gasDensityScale === undefined) controller.gasDensityScale = 1;
 }
 
 /**
@@ -911,7 +905,7 @@ function switchSimulation(){
             // Single galaxy
             case "1":
                 scene.remove(particles);
-                bloom.strength = 1.0;
+                bloom.strength = 0.6;
                 effectController = {
                     // Can be changed dynamically
                     gravity: gravity,
@@ -1021,7 +1015,7 @@ function switchSimulation(){
             // Single galaxy
             case "1":
                 scene.remove(particles);
-                bloom.strength = 1.0;
+                bloom.strength = 0.6;
                 effectController = {
                     // Can be changed dynamically
                     gravity: gravity,
@@ -1029,8 +1023,9 @@ function switchSimulation(){
                     timeStep: timeStep,
                     blackHoleForce: blackHoleForce,
                     luminosity: constLuminosity,
-                    maxAccelerationColor: 50.0,
-                    maxAccelerationColorPercent: 5.0,
+                    // Slider "Colors mix (%)" maps percent * 10 to this value in galaxy mode
+                    maxAccelerationColor: 1000.0,
+                    maxAccelerationColorPercent: 100,
                     motionBlur: false,
                     hideDarkMatter: false,
                     stickiness: 0.3,
