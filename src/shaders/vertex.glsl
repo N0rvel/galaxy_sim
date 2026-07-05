@@ -15,6 +15,10 @@ uniform float uMaxAccelerationColor;
 // Declare uniform for luminosity
 uniform float uLuminosity;
 uniform float uHideDarkMatter;
+// 1.0 in galaxy modes (position w flags gas), 0.0 in universe mode (position w flags dark matter)
+uniform float uGasMode;
+// World-space particle size; 0.0 falls back to 1-pixel points
+uniform float uParticleSize;
 
 // Declare varying variable for color
 varying vec4 vColor;
@@ -41,9 +45,10 @@ void main() {
     /**
      * Size
      */
-     gl_PointSize = 1.0;
-     // Scale point size based on the distance of the particle from the camera
-     gl_PointSize *= ( 1.0 / - mvPosition.z );
+     // Perspective-correct world-space size; gas clouds are drawn bigger and softer
+     // than stars. Clamped to 1 pixel minimum (matches the old fixed-size look).
+     float worldSize = uParticleSize * (hideDarkMatter > 0.5 && uGasMode == 1.0 ? 1.8 : 1.0);
+     gl_PointSize = max( worldSize * cameraConstant / ( - mvPosition.z ), 1.0 );
 
     // Calculate the final position of the particle using the projection matrix
     gl_Position = projectionMatrix * mvPosition;
@@ -54,8 +59,18 @@ void main() {
     // Declare colors for low and high acceleration vec3(1.,0.843,0.388)
     vec3 hightAccelerationColor= vec3(1.,0.376,0.188);
     vec3 lowAccelerationColor= vec3(0.012,0.063,0.988);
+    // Gas clouds are drawn colder / bluer than stars
+    vec3 gasHighColor = vec3(0.85,0.95,1.0);
+    vec3 gasLowColor = vec3(0.15,0.45,1.0);
     vec3 finalColor = vec3(0.0,0.0,0.0);
-    if(uHideDarkMatter == 1.0) {
+    if(uGasMode == 1.0 && hideDarkMatter == 1.0) {
+        // Gas particle (the hide toggle hides gas in galaxy modes)
+        if(uHideDarkMatter == 1.0){
+            finalColor = vec3(0.0,0.0,0.0);
+        } else {
+            finalColor = mix(gasLowColor, gasHighColor, normalized(acc));
+        }
+    } else if(uHideDarkMatter == 1.0) {
         if(hideDarkMatter == 0.0){
             // Interpolate color based on acceleration
             finalColor = mix(lowAccelerationColor, hightAccelerationColor, normalized(acc));
