@@ -1,4 +1,3 @@
-export default `
 #define delta ( 1.0 / 30.0 )
 
 void main() {
@@ -19,4 +18,3 @@ void main() {
     // Output the positions and isDarkMatter in the output color
     gl_FragColor = vec4( pos, tmpPos.w);
 }
-`

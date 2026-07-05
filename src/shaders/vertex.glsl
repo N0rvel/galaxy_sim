@@ -1,4 +1,3 @@
-export default `
 // For PI declaration:
 #include <common>
 
@@ -97,4 +96,3 @@ void main() {
     // Set the color of the particle
     vColor = vec4(finalColor, uLuminosity);
 }
-`

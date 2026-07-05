@@ -1,4 +1,3 @@
-export default `
 
 varying vec4 vColor;
 
@@ -11,4 +10,3 @@ void main()
     float falloff = smoothstep( 1.0, 0.0, d );
     gl_FragColor = vec4( vColor.rgb * falloff, vColor.a );
 }
-`

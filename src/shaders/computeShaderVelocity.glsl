@@ -1,4 +1,3 @@
-export default `
 // For PI declaration:
 #include <common>
 
@@ -154,4 +153,3 @@ void main()	{
     // Output the velocity and acceleration in the output color
     gl_FragColor = vec4( vel, accColor );
 }
-`
