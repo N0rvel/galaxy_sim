@@ -8,6 +8,8 @@ import {
     SIMULATION_TYPE
 } from './config/constants.js';
 import { applyPhysicsDefaults, createBootPreset, createPreset } from './config/presets.js';
+import { clearSimulationSettings, loadSimulationSettings, saveSimulationSettings } from './config/storage.js';
+import { createEnvironment } from './rendering/environment.js';
 import { createComposer, updateMotionBlurPasses } from './rendering/postprocessing.js';
 import { createComputation, stepSemiImplicit, syncDynamicUniforms } from './simulation/gpuComputation.js';
 import { createParticles, getCameraConstant } from './simulation/particles.js';
@@ -28,6 +30,8 @@ class GalaxyApp {
         this.bloom = { strength: 0.6 };
         this.paused = false;
         this.autoRotation = true;
+        this.hideEnvironment = false;
+        this.showStats = true;
         this.running = false;
         this.nextPhysicsTime = 0;
     }
@@ -40,6 +44,7 @@ class GalaxyApp {
         if (quality === QUALITY.NORMAL) {
             this.effectController = createPreset(SIMULATION_TYPE.GALAXY, QUALITY.NORMAL);
         }
+        this.applySavedParameters();
         this.init();
         if (!this.running) {
             this.running = true;
@@ -68,6 +73,8 @@ class GalaxyApp {
         }
 
         this.scene = new THREE.Scene();
+        this.environment = createEnvironment(this.scene, this.camera);
+        this.environment.setVisible(!this.hideEnvironment);
 
         this.renderer = new THREE.WebGLRenderer();
         this.renderer.setPixelRatio(window.devicePixelRatio);
@@ -87,6 +94,7 @@ class GalaxyApp {
         // Show fps, ping, etc
         this.stats = new Stats();
         this.container.appendChild(this.stats.dom);
+        this.stats.dom.style.display = this.showStats ? '' : 'none';
 
         this.gui = createGUI(this);
 
@@ -108,6 +116,7 @@ class GalaxyApp {
      * Dispose everything init() created, so init() can run again.
      */
     teardown() {
+        this.environment.dispose();
         this.scene.remove(this.particles);
         this.material.dispose();
         this.geometry.dispose();
@@ -128,22 +137,50 @@ class GalaxyApp {
 
     /**
      * Switch to the simulation type selected in the GUI dropdown, replacing
-     * all parameters with the preset for the current quality mode.
+     * all parameters with the preset for the current quality mode (overridden
+     * by the parameters previously saved for that type, if any).
      */
     switchSimulation() {
         const type = Number(this.effectController.typeOfSimulation);
         this.paused = false;
         this.bloom.strength = BLOOM_STRENGTH_BY_TYPE[type];
         this.effectController = createPreset(type, this.quality);
+        this.applySavedParameters();
         this.teardown();
         this.init();
     }
 
     /**
-     * Reset all parameters of the current simulation type to their preset.
+     * Reset all parameters of the current simulation type to their preset,
+     * discarding the saved parameters for that type.
      */
     resetParameters() {
+        clearSimulationSettings(Number(this.effectController.typeOfSimulation), this.quality);
         this.switchSimulation();
+    }
+
+    /**
+     * Persist the current parameters in localStorage; they are reapplied on
+     * the next visit and every time this simulation type is selected.
+     */
+    saveParameters() {
+        return saveSimulationSettings(Number(this.effectController.typeOfSimulation), this.quality, {
+            controller: { ...this.effectController },
+            bloomStrength: this.bloom.strength
+        });
+    }
+
+    /**
+     * Overlay the parameters saved for the current simulation type (if any)
+     * onto the current effectController.
+     */
+    applySavedParameters() {
+        const type = Number(this.effectController.typeOfSimulation);
+        const saved = loadSimulationSettings(type, this.quality);
+        if (!saved) return;
+        Object.assign(this.effectController, saved.controller);
+        this.effectController.typeOfSimulation = type;
+        if (typeof saved.bloomStrength === 'number') this.bloom.strength = saved.bloomStrength;
     }
 
     /**
@@ -169,6 +206,7 @@ class GalaxyApp {
 
     render() {
         const controller = this.effectController;
+        this.environment.update(performance.now() / 1000);
         if (!this.paused) {
             const now = performance.now();
             if (now >= this.nextPhysicsTime) {

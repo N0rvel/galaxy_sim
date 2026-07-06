@@ -9,13 +9,6 @@ export const SIMULATION_TYPE = {
     GALAXY_COLLISION: 3
 };
 
-// Labels shown in the dat.gui "Type of simulation" dropdown
-export const SIMULATION_TYPE_OPTIONS = {
-    'Galaxie': SIMULATION_TYPE.GALAXY,
-    'Univers': SIMULATION_TYPE.UNIVERSE,
-    'Collision de galaxies': SIMULATION_TYPE.GALAXY_COLLISION
-};
-
 // Quality mode picked on the landing screen
 export const QUALITY = {
     NORMAL: 1,       // small particle counts
