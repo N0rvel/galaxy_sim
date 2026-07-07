@@ -35,7 +35,9 @@ export function makeDisk(count, blackHoleMass, includeHalo, controller) {
     // When interactionRate < 1 both shader loop axes are truncated, so only
     // interactionRate^2 of the particle pairs actually contribute to gravity
     const sampledMassFraction = controller.interactionRate * controller.interactionRate;
-    const haloGM = includeHalo ? G * controller.haloMassFactor * controller.numberOfStars : 0.0;
+    // The halo is a multiple of THIS disk's mass (count), not of the total
+    // particle count: in collision mode each galaxy carries its own halo
+    const haloGM = includeHalo ? G * controller.haloMassFactor * count : 0.0;
     const haloRs = radius * HALO_RS_FACTOR;
     // Exponential disk scale length; the "Central concentration" GUI value keeps
     // its meaning: higher values concentrate more mass in the center

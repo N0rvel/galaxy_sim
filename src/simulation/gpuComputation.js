@@ -56,6 +56,10 @@ export function createComputation(renderer, controller, quality) {
     velocityUniforms['uStickyRadius'] = { value: 0.0 };
     velocityUniforms['uGasPressure'] = { value: 0.0 };
     velocityUniforms['uHaloGM'] = { value: 0.0 };
+    velocityUniforms['uHaloCount'] = { value: 0.0 };
+    // Set to 1.0 by the app when the two collision black holes get close
+    // enough that their halos coalesce; reset by the next restart
+    velocityUniforms['uHalosMerged'] = { value: 0.0 };
     velocityUniforms['uHaloRMax'] = { value: controller.radius * HALO_RMAX_FACTOR };
     velocityUniforms['uHaloProfile'] = { value: buildHaloTexture(controller.radius) };
     velocityUniforms['uGasMode'] = { value: type === SIMULATION_TYPE.UNIVERSE ? 0.0 : 1.0 };
@@ -85,8 +89,17 @@ export function syncDynamicUniforms(computation, controller) {
     uniforms['uStickiness'].value = controller.stickiness;
     uniforms['uStickyRadius'].value = controller.stickyRadius;
     uniforms['uGasPressure'].value = controller.gasPressure;
-    // Halo mass is expressed as a multiple of the total luminous (particle) mass
-    uniforms['uHaloGM'].value = controller.gravity * controller.haloMassFactor * computation.particleCount;
+    // One halo per galaxy: single galaxy mode has one at the origin, collision
+    // mode one per moving black hole. Halo mass is a multiple of its own
+    // galaxy's luminous (particle) mass, so each collision galaxy gets the
+    // same halo/stars ratio as the single-galaxy scenario.
+    const type = Number(controller.typeOfSimulation);
+    const haloCount = type === SIMULATION_TYPE.GALAXY ? 1
+        : type === SIMULATION_TYPE.GALAXY_COLLISION ? 2 : 0;
+    uniforms['uHaloCount'].value = haloCount;
+    uniforms['uHaloGM'].value = haloCount > 0
+        ? controller.gravity * controller.haloMassFactor * computation.particleCount / haloCount
+        : 0.0;
 }
 
 /**

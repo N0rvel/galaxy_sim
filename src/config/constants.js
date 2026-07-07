@@ -27,6 +27,9 @@ export const EINASTO_ALPHA = 0.17;
 export const HALO_RS_FACTOR = 0.2;   // Einasto scale radius, as a fraction of the galaxy radius
 export const HALO_RMAX_FACTOR = 6.0; // radius covered by the enclosed-mass lookup table
 export const HALO_TABLE_SIZE = 256;
+// Collision mode: once the two black holes come closer than this fraction of
+// the galaxy radius, their halos coalesce into a single one (see app.js)
+export const HALO_MERGE_RADIUS_FACTOR = 0.15;
 
 // The shaders integrate a fixed 1/30 s timestep per compute step, so stepping
 // once per display frame would tie simulation speed to the monitor refresh

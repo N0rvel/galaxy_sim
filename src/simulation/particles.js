@@ -53,7 +53,17 @@ export function createParticles(controller, camera) {
         'uGasMode': { value: controller.typeOfSimulation === SIMULATION_TYPE.UNIVERSE ? 0.0 : 1.0 },
         'uParticleSize': { value: controller.particleSize },
         'uGasBrightness': { value: controller.gasBrightness },
-        'uGasDensityScale': { value: controller.gasDensityScale }
+        'uGasDensityScale': { value: controller.gasDensityScale },
+        'uRenderPass': { value: 0.0 },
+        'uGasFluidRadius': { value: controller.gasFluidRadius },
+        'uGasNeighborTarget': { value: controller.gasFluidNeighbors },
+        'uGasMaxDistention': { value: controller.gasFluidMaxDistention },
+        'uGasFluidOn': { value: 0.0 },
+        'uStarFluid': { value: 0.0 },
+        'uStarLowColor': { value: new THREE.Color(controller.starLowColor) },
+        'uStarHighColor': { value: new THREE.Color(controller.starHighColor) },
+        'uGasDiffuseColor': { value: new THREE.Color(controller.gasDiffuseColor) },
+        'uGasDenseColor': { value: new THREE.Color(controller.gasDenseColor) }
     };
 
     const material = new THREE.ShaderMaterial({

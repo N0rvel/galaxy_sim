@@ -332,6 +332,33 @@
     cursor: pointer;
 }
 
+/* ---- Color rows ---- */
+.sp-color-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+}
+
+.sp-color-input {
+    width: 42px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--sp-border);
+    border-radius: 6px;
+    background: var(--sp-bg-raised);
+    cursor: pointer;
+}
+
+.sp-color-input::-webkit-color-swatch-wrapper {
+    padding: 2px;
+}
+
+.sp-color-input::-webkit-color-swatch {
+    border: none;
+    border-radius: 4px;
+}
+
 .sp-toggle-input {
     display: none;
 }

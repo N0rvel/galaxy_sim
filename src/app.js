@@ -3,6 +3,7 @@ import Stats from 'three/examples/jsm/libs/stats.module';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import {
     BLOOM_STRENGTH_BY_TYPE,
+    HALO_MERGE_RADIUS_FACTOR,
     PHYSICS_INTERVAL_MS,
     QUALITY,
     SIMULATION_TYPE
@@ -10,6 +11,7 @@ import {
 import { applyPhysicsDefaults, createBootPreset, createPreset } from './config/presets.js';
 import { clearSimulationSettings, loadSimulationSettings, saveSimulationSettings } from './config/storage.js';
 import { createEnvironment } from './rendering/environment.js';
+import { GasFluid } from './rendering/gasFluid.js';
 import { createComposer, updateMotionBlurPasses } from './rendering/postprocessing.js';
 import { createComputation, stepSemiImplicit, syncDynamicUniforms } from './simulation/gpuComputation.js';
 import { createParticles, getCameraConstant } from './simulation/particles.js';
@@ -30,7 +32,7 @@ class GalaxyApp {
         this.bloom = { strength: 0.6 };
         this.paused = false;
         this.autoRotation = true;
-        this.hideEnvironment = false;
+        this.hideEnvironment = true;
         this.showStats = true;
         this.running = false;
         this.nextPhysicsTime = 0;
@@ -90,6 +92,7 @@ class GalaxyApp {
         }
 
         this.computation = createComputation(this.renderer, controller, this.quality);
+        this.halosMerged = false;
 
         // Show fps, ping, etc
         this.stats = new Stats();
@@ -107,15 +110,18 @@ class GalaxyApp {
 
         this.syncUniforms();
 
-        const { composer, bloomPass } = createComposer(this.renderer, this.scene, this.camera, this.bloom.strength);
+        const { composer, bloomPass, gasCompositePass } = createComposer(this.renderer, this.scene, this.camera, this.bloom.strength);
         this.composer = composer;
         this.bloomPass = bloomPass;
+        this.gasCompositePass = gasCompositePass;
+        this.gasFluid = new GasFluid(window.innerWidth, window.innerHeight);
     }
 
     /**
      * Dispose everything init() created, so init() can run again.
      */
     teardown() {
+        this.gasFluid.dispose();
         this.environment.dispose();
         this.scene.remove(this.particles);
         this.material.dispose();
@@ -194,8 +200,34 @@ class GalaxyApp {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.gasFluid.setSize(window.innerWidth, window.innerHeight);
         this.particleUniforms['cameraConstant'].value = getCameraConstant(this.camera);
     };
+
+    /**
+     * Collision mode: watch the separation of the two black holes (particles
+     * 0 and 1 of the position texture) and, once they come closer than
+     * HALO_MERGE_RADIUS_FACTOR x radius, fuse their dark matter halos into a
+     * single one (uHalosMerged uniform, see computeShaderVelocity.glsl).
+     * Without this the two rigid halos keep re-capturing their own stars and
+     * the cores bounce off each other forever instead of forming one remnant.
+     */
+    checkHaloMerge() {
+        if (this.halosMerged || !this.renderer.capabilities.isWebGL2) return;
+        const uniforms = this.computation.velocityUniforms;
+        if (uniforms['uHaloCount'].value < 2 || uniforms['uHaloGM'].value <= 0) return;
+        const { gpuCompute, positionVariable } = this.computation;
+        const pixels = new Float32Array(8);
+        this.renderer.readRenderTargetPixels(gpuCompute.getCurrentRenderTarget(positionVariable), 0, 0, 2, 1, pixels);
+        const dx = pixels[0] - pixels[4];
+        const dy = pixels[1] - pixels[5];
+        const dz = pixels[2] - pixels[6];
+        const threshold = this.effectController.radius * HALO_MERGE_RADIUS_FACTOR;
+        if (dx * dx + dy * dy + dz * dz < threshold * threshold) {
+            this.halosMerged = true;
+            uniforms['uHalosMerged'].value = 1.0;
+        }
+    }
 
     animate = () => {
         this.controls.update();
@@ -218,15 +250,42 @@ class GalaxyApp {
                 const { gpuCompute, positionVariable, velocityVariable } = this.computation;
                 this.particleUniforms['texturePosition'].value = gpuCompute.getCurrentRenderTarget(positionVariable).texture;
                 this.particleUniforms['textureVelocity'].value = gpuCompute.getCurrentRenderTarget(velocityVariable).texture;
+                this.checkHaloMerge();
             }
             this.particleUniforms['uMaxAccelerationColor'].value = controller.maxAccelerationColor;
         }
+        // Fluid layer: OpenSPH-style volumetric splatting. Gas and stars join
+        // it independently (two GUI toggles); whatever is in the layer renders
+        // into the GasFluid HDR target (variable radius + center-weighted
+        // emission), leaves the main pass, and comes back tone-mapped through
+        // the composite pass.
+        const isGalaxyMode = Number(controller.typeOfSimulation) !== SIMULATION_TYPE.UNIVERSE;
+        const gasInFluid = isGalaxyMode && controller.gasFluid && !controller.hideDarkMatter;
+        const starInFluid = isGalaxyMode && controller.starFluid;
+        const fluidOn = gasInFluid || starInFluid;
+        this.particleUniforms['uGasFluidOn'].value = gasInFluid ? 1.0 : 0.0;
+        this.particleUniforms['uStarFluid'].value = starInFluid ? 1.0 : 0.0;
+        if (fluidOn) {
+            this.environment.setVisible(false);
+            this.gasFluid.update(this.renderer, this.scene, this.camera, this.particleUniforms);
+            this.environment.setVisible(!this.hideEnvironment);
+            this.particleUniforms['uRenderPass'].value = 1.0;
+            this.gasCompositePass.uniforms['tGas'].value = this.gasFluid.texture;
+            this.gasCompositePass.uniforms['uIntensity'].value = controller.gasFluidIntensity;
+        } else {
+            this.particleUniforms['uRenderPass'].value = 0.0;
+        }
+        this.gasCompositePass.enabled = fluidOn;
+
         updateMotionBlurPasses(this.composer, controller.motionBlur);
         this.particleUniforms['uLuminosity'].value = controller.luminosity;
         this.particleUniforms['uHideDarkMatter'].value = controller.hideDarkMatter;
         this.particleUniforms['uParticleSize'].value = controller.particleSize;
         this.particleUniforms['uGasBrightness'].value = controller.gasBrightness;
         this.particleUniforms['uGasDensityScale'].value = controller.gasDensityScale;
+        this.particleUniforms['uGasFluidRadius'].value = controller.gasFluidRadius;
+        this.particleUniforms['uGasNeighborTarget'].value = controller.gasFluidNeighbors;
+        this.particleUniforms['uGasMaxDistention'].value = controller.gasFluidMaxDistention;
         this.composer.render();
     }
 }

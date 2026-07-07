@@ -40,10 +40,43 @@ blendPass.uniforms['mixRatio'].value = 0.5;
 const outputPass = new ShaderPass(CopyShader);
 outputPass.renderToScreen = true;
 
+// Additively composites the denoised fluid gas layer (see rendering/gasFluid.js)
+// under the star render, before bloom so the gas glows too
+const GasCompositeShader = {
+    uniforms: {
+        'tDiffuse': { value: null },
+        'tGas': { value: null },
+        'uIntensity': { value: 1.0 }
+    },
+    vertexShader: /* glsl */`
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+        }`,
+    fragmentShader: /* glsl */`
+        uniform sampler2D tDiffuse;
+        uniform sampler2D tGas;
+        uniform float uIntensity;
+        varying vec2 vUv;
+        void main() {
+            // The gas layer is HDR (additive accumulation of thousands of
+            // particles reaches values far above 1 in the core). Reinhard
+            // tone mapping on the LUMINANCE compresses it into displayable
+            // range while preserving the hue, so dense cores stay saturated
+            // orange instead of blowing out to pure white. uIntensity acts
+            // as exposure.
+            vec3 gas = texture2D( tGas, vUv ).rgb * uIntensity;
+            float lum = dot( gas, vec3( 0.2126, 0.7152, 0.0722 ) );
+            gas *= 1.0 / ( 1.0 + lum );
+            gl_FragColor = texture2D( tDiffuse, vUv ) + vec4( gas, 0.0 );
+        }`
+};
+
 /**
  * Build the effect composer for a fresh scene/camera.
  *
- * @returns {{composer, bloomPass}}
+ * @returns {{composer, bloomPass, gasCompositePass}}
  */
 export function createComposer(renderer, scene, camera, bloomStrength) {
     const renderScene = new RenderPass(scene, camera);
@@ -56,13 +89,17 @@ export function createComposer(renderer, scene, camera, bloomStrength) {
     );
     bloomPass.strength = bloomStrength;
 
+    const gasCompositePass = new ShaderPass(GasCompositeShader);
+    gasCompositePass.enabled = false;
+
     const composer = new EffectComposer(renderer);
     composer.addPass(renderScene);
+    composer.addPass(gasCompositePass);
     composer.addPass(bloomPass);
     composer.addPass(blendPass);
     composer.addPass(savePass);
     composer.addPass(outputPass);
-    return { composer, bloomPass };
+    return { composer, bloomPass, gasCompositePass };
 }
 
 /**

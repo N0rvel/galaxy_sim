@@ -1,4 +1,16 @@
 import { SIMULATION_TYPE } from '../config/constants.js';
+import {
+    BH_MSUN6_PER_FORCE,
+    KLY_PER_UNIT,
+    LY_PER_UNIT,
+    MLY_PER_UNIT,
+    myrPerSecToTimeStep,
+    referenceGravity,
+    referenceTimeStep,
+    speedFactorToTimeStep,
+    timeStepToMyrPerSec,
+    timeStepToSpeedFactor
+} from '../config/units.js';
 import { isAmbienceMuted, setAmbienceMuted } from '../audio/ambience.js';
 import './gui.css';
 
@@ -49,15 +61,16 @@ function stepDecimals(step) {
 /**
  * Slider row: label + editable numeric value on top, range input below.
  */
-function addSlider(parent, { label, min, max, step, value, onChange, restart = false }) {
+function addSlider(parent, { label, min, max, step, value, onChange, restart = false, title = '' }) {
     const decimals = stepDecimals(step);
     const row = el('div', 'sp-row', parent);
     const top = el('div', 'sp-row-top', row);
     const name = el('span', 'sp-label', top);
     name.textContent = label;
+    if (title) row.title = title;
     if (restart) {
         name.textContent += ' *';
-        row.title = 'Applied on the next restart';
+        row.title = (title ? title + '. ' : '') + 'Applied on the next restart';
     }
     const num = el('input', 'sp-num', top);
     num.type = 'text';
@@ -110,6 +123,19 @@ function addToggle(parent, { label, value, onChange }) {
     input.checked = value;
     el('span', 'sp-switch', row);
     input.addEventListener('change', () => onChange(input.checked));
+}
+
+/**
+ * Color row: label + native color picker swatch. onChange fires live while
+ * the user drags inside the browser's picker.
+ */
+function addColor(parent, { label, value, onChange }) {
+    const row = el('label', 'sp-row sp-color-row', parent);
+    el('span', 'sp-label', row).textContent = label;
+    const input = el('input', 'sp-color-input', row);
+    input.type = 'color';
+    input.value = value;
+    input.addEventListener('input', () => onChange(input.value));
 }
 
 /**
@@ -308,18 +334,27 @@ export function createGUI(app) {
     });
 
     /* ================== Simulation tab ================== */
+    // Sliders show real astronomical values (see config/units.js for the
+    // calibration); the conversions here are the only place they exist,
+    // the controller keeps the raw internal values.
     const simulation = tabPanes['simulation'];
+    const gRef = referenceGravity(type, app.quality);
     addSlider(simulation, {
-        label: 'Gravity', min: 0, max: 1000, step: 0.05, value: controller.gravity,
-        onChange: (v) => { controller.gravity = v; sync(); }
+        label: 'Gravity (× G)', min: 0, max: Math.round(1000 / gRef), step: 0.01,
+        value: controller.gravity / gRef,
+        title: 'Strength of gravity as a multiple of Newton\'s constant (1 = real gravity)',
+        onChange: (v) => { controller.gravity = v * gRef; sync(); }
     });
     if (isGalaxyMode) {
         addSlider(simulation, {
-            label: 'Black hole mass', min: 0, max: 10000, step: 1, value: controller.blackHoleForce,
-            onChange: (v) => { controller.blackHoleForce = v; sync(); }
+            label: 'Black hole mass (10⁶ M☉)', min: 0, max: 5000, step: 1,
+            value: controller.blackHoleForce * BH_MSUN6_PER_FORCE,
+            title: 'Millions of solar masses. Sagittarius A*, the Milky Way\'s black hole, is 4.3',
+            onChange: (v) => { controller.blackHoleForce = v / BH_MSUN6_PER_FORCE; sync(); }
         });
         addSlider(simulation, {
             label: 'Stars', min: 2, max: 1000000, step: 1, value: controller.numberOfStars, restart: true,
+            title: 'Each particle stands for a cluster of ~500,000 solar masses of stars',
             onChange: (v) => { controller.numberOfStars = v; }
         });
     } else {
@@ -331,63 +366,100 @@ export function createGUI(app) {
 
     const simulationAdvanced = addAdvanced(simulation, 'simulation');
     addSlider(simulationAdvanced, {
-        label: 'Interaction rate', min: 0, max: 1, step: 0.001, value: controller.interactionRate,
-        onChange: (v) => { controller.interactionRate = v; sync(); }
-    });
-    addSlider(simulationAdvanced, {
-        label: 'Time step', min: 0, max: 0.01, step: 0.0001, value: controller.timeStep,
-        onChange: (v) => { controller.timeStep = v; sync(); }
-    });
-    addSlider(simulationAdvanced, {
-        label: 'Gravity softening', min: 0, max: 20, step: 0.05, value: controller.softening,
-        onChange: (v) => { controller.softening = v; sync(); }
+        label: 'Interaction rate (%)', min: 0, max: 100, step: 0.1,
+        value: controller.interactionRate * 100,
+        title: 'Fraction of the other particles each particle actually attracts (accuracy vs speed)',
+        onChange: (v) => { controller.interactionRate = v / 100; sync(); }
     });
     if (isGalaxyMode) {
         addSlider(simulationAdvanced, {
-            label: 'Gas stickiness', min: 0, max: 1, step: 0.01, value: controller.stickiness,
-            onChange: (v) => { controller.stickiness = v; sync(); }
+            label: 'Simulation speed (Myr/s)', min: 0, max: 190, step: 0.5,
+            value: timeStepToMyrPerSec(controller.timeStep),
+            title: 'Simulated megayears per real-time second. The Sun orbits the galaxy in ~220 Myr',
+            onChange: (v) => { controller.timeStep = myrPerSecToTimeStep(v); sync(); }
         });
         addSlider(simulationAdvanced, {
-            label: 'Gas collision radius', min: 0, max: 20, step: 0.1, value: controller.stickyRadius,
-            onChange: (v) => { controller.stickyRadius = v; sync(); }
+            label: 'Gravity softening (ly)', min: 0, max: 9800, step: 10,
+            value: controller.softening * LY_PER_UNIT,
+            title: 'Physical size given to each particle so close encounters stay finite',
+            onChange: (v) => { controller.softening = v / LY_PER_UNIT; sync(); }
+        });
+        addSlider(simulationAdvanced, {
+            label: 'Gas stickiness (%)', min: 0, max: 100, step: 1,
+            value: controller.stickiness * 100,
+            title: 'Share of the approach velocity lost when two gas clouds collide',
+            onChange: (v) => { controller.stickiness = v / 100; sync(); }
+        });
+        addSlider(simulationAdvanced, {
+            label: 'Gas collision radius (ly)', min: 0, max: 9800, step: 10,
+            value: controller.stickyRadius * LY_PER_UNIT,
+            title: 'Distance below which two gas clouds collide',
+            onChange: (v) => { controller.stickyRadius = v / LY_PER_UNIT; sync(); }
         });
         addSlider(simulationAdvanced, {
             label: 'Gas pressure', min: 0, max: 30, step: 0.1, value: controller.gasPressure,
+            title: 'Short-range repulsion capping the gas density (interstellar pressure floor)',
             onChange: (v) => { controller.gasPressure = v; sync(); }
         });
-        if (type === SIMULATION_TYPE.GALAXY) {
-            addSlider(simulationAdvanced, {
-                label: 'Halo mass (x stars)', min: 0, max: 10, step: 0.1, value: controller.haloMassFactor,
-                onChange: (v) => { controller.haloMassFactor = v; sync(); }
-            });
-        }
         addSlider(simulationAdvanced, {
-            label: 'Galaxy diameter', min: 1, max: 1000, step: 1, value: controller.radius, restart: true,
-            onChange: (v) => { controller.radius = v; }
+            label: 'Halo mass (× stellar mass)', min: 0, max: 10, step: 0.1, value: controller.haloMassFactor,
+            title: 'Dark matter halo mass per galaxy, as a multiple of its stars (~5 for the Milky Way)',
+            onChange: (v) => { controller.haloMassFactor = v; sync(); }
         });
         addSlider(simulationAdvanced, {
-            label: 'Galaxy height', min: 0, max: 50, step: 0.01, value: controller.height, restart: true,
-            onChange: (v) => { controller.height = v; }
+            label: 'Galaxy diameter (kly)', min: 1, max: 980, step: 1,
+            value: controller.radius * 2 * KLY_PER_UNIT, restart: true,
+            title: 'Thousands of light-years. The Milky Way\'s stellar disk spans ~100 kly',
+            onChange: (v) => { controller.radius = v / (2 * KLY_PER_UNIT); }
+        });
+        addSlider(simulationAdvanced, {
+            label: 'Galaxy thickness (ly)', min: 0, max: 24500, step: 10,
+            value: controller.height * LY_PER_UNIT, restart: true,
+            title: 'Vertical extent of the disk. The Milky Way\'s thin disk is ~1,000 ly thick',
+            onChange: (v) => { controller.height = v / LY_PER_UNIT; }
         });
         addSlider(simulationAdvanced, {
             label: 'Central concentration', min: 0, max: 20, step: 0.001, value: controller.middleVelocity, restart: true,
+            title: 'How strongly the stars pile up toward the center (disk scale length)',
             onChange: (v) => { controller.middleVelocity = v; }
         });
         addSlider(simulationAdvanced, {
-            label: 'Gas fraction', min: 0, max: 1, step: 0.01, value: controller.gasFraction, restart: true,
-            onChange: (v) => { controller.gasFraction = v; }
+            label: 'Gas fraction (%)', min: 0, max: 100, step: 1,
+            value: controller.gasFraction * 100, restart: true,
+            title: 'Share of the particles that are gas clouds instead of stars (~15% in the Milky Way)',
+            onChange: (v) => { controller.gasFraction = v / 100; }
         });
         addSlider(simulationAdvanced, {
-            label: 'Velocity dispersion', min: 0, max: 0.5, step: 0.005, value: controller.velocityDispersion, restart: true,
-            onChange: (v) => { controller.velocityDispersion = v; }
+            label: 'Velocity dispersion (%)', min: 0, max: 50, step: 0.5,
+            value: controller.velocityDispersion * 100, restart: true,
+            title: 'Random stellar motion as a share of the orbital velocity (~10% for the Sun\'s neighbors)',
+            onChange: (v) => { controller.velocityDispersion = v / 100; }
         });
     } else if (type === SIMULATION_TYPE.UNIVERSE) {
+        const tsRef = referenceTimeStep(type, app.quality);
         addSlider(simulationAdvanced, {
-            label: 'Universe diameter', min: 1, max: 1000, step: 1, value: controller.radius, restart: true,
-            onChange: (v) => { controller.radius = v; }
+            label: 'Simulation speed (×)', min: 0, max: 10, step: 0.1,
+            value: timeStepToSpeedFactor(controller.timeStep, tsRef),
+            title: 'Speed multiplier relative to the preset',
+            onChange: (v) => { controller.timeStep = speedFactorToTimeStep(v, tsRef); sync(); }
+        });
+        addSlider(simulationAdvanced, {
+            label: 'Gravity softening (Mly)', min: 0, max: 200, step: 1,
+            value: controller.softening * MLY_PER_UNIT,
+            title: 'Physical size given to each galaxy so close encounters stay finite',
+            onChange: (v) => { controller.softening = v / MLY_PER_UNIT; sync(); }
+        });
+        addSlider(simulationAdvanced, {
+            label: 'Universe diameter (Mly)', min: 10, max: 10000, step: 10,
+            value: controller.radius * MLY_PER_UNIT, restart: true,
+            title: 'Millions of light-years. Initial size of the expanding region',
+            onChange: (v) => { controller.radius = v / MLY_PER_UNIT; }
         });
     }
     addNote(simulationAdvanced, '* applied on the next restart');
+    if (isGalaxyMode) {
+        addNote(simulation, 'Scale: 1 particle ≈ 5×10⁵ M☉, Milky Way preset ≈ 100 kly across');
+    }
 
     /* ================== Graphics tab ================== */
     const graphics = tabPanes['graphics'];
@@ -402,6 +474,18 @@ export function createGUI(app) {
             app.bloomPass.strength = v;
         }
     });
+    if (isGalaxyMode) {
+        addToggle(graphics, {
+            label: 'Fluid gas rendering',
+            value: controller.gasFluid,
+            onChange: (v) => { controller.gasFluid = v; }
+        });
+        addToggle(graphics, {
+            label: 'Fluid star rendering',
+            value: controller.starFluid,
+            onChange: (v) => { controller.starFluid = v; }
+        });
+    }
     addToggle(graphics, {
         label: 'Hide environment',
         value: app.hideEnvironment,
@@ -410,6 +494,28 @@ export function createGUI(app) {
             app.environment.setVisible(!v);
         }
     });
+
+    // Particle colors, applied to the render uniforms immediately
+    const setColor = (uniform) => (v) => app.particleUniforms[uniform].value.set(v);
+    el('div', 'sp-group-title', graphics).textContent = 'Colors';
+    addColor(graphics, {
+        label: 'Stars (low acceleration)', value: controller.starLowColor,
+        onChange: (v) => { controller.starLowColor = v; setColor('uStarLowColor')(v); }
+    });
+    addColor(graphics, {
+        label: 'Stars (high acceleration)', value: controller.starHighColor,
+        onChange: (v) => { controller.starHighColor = v; setColor('uStarHighColor')(v); }
+    });
+    if (isGalaxyMode) {
+        addColor(graphics, {
+            label: 'Gas (diffuse)', value: controller.gasDiffuseColor,
+            onChange: (v) => { controller.gasDiffuseColor = v; setColor('uGasDiffuseColor')(v); }
+        });
+        addColor(graphics, {
+            label: 'Gas (dense, spiral arms)', value: controller.gasDenseColor,
+            onChange: (v) => { controller.gasDenseColor = v; setColor('uGasDenseColor')(v); }
+        });
+    }
 
     const graphicsAdvanced = addAdvanced(graphics, 'graphics');
     addToggle(graphicsAdvanced, {
@@ -423,6 +529,27 @@ export function createGUI(app) {
         onChange: (v) => { controller.hideDarkMatter = v; }
     });
     if (isGalaxyMode) {
+        addSlider(graphicsAdvanced, {
+            label: 'Fluid cloud size (ly)', min: 10, max: 2500, step: 10,
+            value: controller.gasFluidRadius * LY_PER_UNIT,
+            title: 'Base radius of a gas cloud splat before dilation',
+            onChange: (v) => { controller.gasFluidRadius = v / LY_PER_UNIT; }
+        });
+        addSlider(graphicsAdvanced, {
+            label: 'Fluid neighbor target', min: 1, max: 32, step: 1, value: controller.gasFluidNeighbors,
+            title: 'Each gas cloud grows until it covers this many neighbors: higher = smoother, mistier fluid',
+            onChange: (v) => { controller.gasFluidNeighbors = v; }
+        });
+        addSlider(graphicsAdvanced, {
+            label: 'Fluid max dilation (×)', min: 1, max: 20, step: 0.5, value: controller.gasFluidMaxDistention,
+            title: 'Cap on how much an isolated gas cloud can swell to fill empty space',
+            onChange: (v) => { controller.gasFluidMaxDistention = v; }
+        });
+        addSlider(graphicsAdvanced, {
+            label: 'Fluid brightness', min: 0, max: 6, step: 0.1, value: controller.gasFluidIntensity,
+            title: 'Exposure of the gas layer',
+            onChange: (v) => { controller.gasFluidIntensity = v; }
+        });
         addSlider(graphicsAdvanced, {
             label: 'Gas glow (arms)', min: 0, max: 4, step: 0.05, value: controller.gasBrightness,
             onChange: (v) => { controller.gasBrightness = v; }
