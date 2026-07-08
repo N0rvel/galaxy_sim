@@ -26,14 +26,16 @@ uniform float uGasDensityScale;
 // 1.0 renders stars only, 2.0 renders gas only as OpenSPH-style volumetric
 // splats (variable radius + constant per-particle emission, see below)
 uniform float uRenderPass;
-// Volumetric gas splats (after OpenSPH's VolumeRenderer): each particle
-// dilates its radius to reach roughly uGasNeighborTarget neighbors, capped at
-// uGasMaxDistention times the base radius uGasFluidRadius, so sparse gas
-// fills the empty regions with large faint blobs while dense gas keeps small
-// bright kernels
+// Volumetric gas splats (after OpenSPH's VolumeRenderer): the splat radius
+// spans [uGasFluidRadius, uGasFluidRadiusMax] with the local density -
+// particles at or above uGasNeighborTarget neighbors sit on the min bound,
+// isolated particles reach the max bound, in between the radius follows the
+// equal-neighbor dilation curve (radius ~ neighbors^(-1/3)). Sparse gas
+// fills the empty regions with large faint blobs while dense gas keeps
+// small bright kernels.
 uniform float uGasFluidRadius;
+uniform float uGasFluidRadiusMax;
 uniform float uGasNeighborTarget;
-uniform float uGasMaxDistention;
 // Which particle kinds belong to the fluid layer (volumetric splats rendered
 // in pass 2 and composited): the two toggles are independent, a kind that is
 // not in the fluid layer renders normally in the main pass
@@ -91,18 +93,21 @@ void main() {
     // (matches the old fixed-size look). Gas clouds render slightly larger
     // than stars for a diffuse, nebular look.
     float pointSize = uParticleSize * ( isGas ? 1.5 : 1.0 ) * cameraConstant / ( - mvPosition.z );
-    float distention = 1.0;
+    float splatRadius = 1.0;
     if ( uRenderPass > 1.5 ) {
-        // Volumetric gas splat: dilate the radius so every particle covers
-        // roughly the same number of neighbors (neighbor count within a fixed
-        // radius scales with density, so the equal-neighbor radius goes with
-        // count^(-1/3)). Isolated gas swells up to uGasMaxDistention and fills
-        // the voids, compressed gas in the arms stays small and sharp.
+        // Volumetric splat radius: the equal-neighbor dilation law
+        // (radius ~ neighbors^(-1/3)) remapped onto the user's radius range.
+        // dRaw is 1.0 at the neighbor target and peaks at dIso for a fully
+        // isolated particle (neighbor floor 0.5); normalizing by dIso makes
+        // both bounds attainable: dense clouds sit on uGasFluidRadius,
+        // isolated ones reach uGasFluidRadiusMax.
         float neighbors = max( floor( acc ), 0.5 );
-        distention = clamp( pow( uGasNeighborTarget / neighbors, 1.0 / 3.0 ), 1.0, uGasMaxDistention );
-        // Stars are more point-like than gas clouds: smaller base radius
-        float baseRadius = uGasFluidRadius * ( isGas ? 1.0 : 0.6 );
-        pointSize = baseRadius * distention * cameraConstant / ( - mvPosition.z );
+        float dRaw = pow( uGasNeighborTarget / neighbors, 1.0 / 3.0 );
+        float dIso = pow( uGasNeighborTarget / 0.5, 1.0 / 3.0 );
+        float t = clamp( ( dRaw - 1.0 ) / max( dIso - 1.0, 1e-4 ), 0.0, 1.0 );
+        splatRadius = mix( uGasFluidRadius, uGasFluidRadiusMax, t );
+        // Stars are more point-like than gas clouds: smaller radius
+        pointSize = splatRadius * ( isGas ? 1.0 : 0.6 ) * cameraConstant / ( - mvPosition.z );
     }
     gl_PointSize = max( pointSize, 1.0 );
 
@@ -151,16 +156,15 @@ void main() {
     // Set the color of the particle
     vColor = vec4(finalColor, uLuminosity * subPixel);
 
-    // Volumetric splat: per-pixel surface brightness independent of both the
-    // camera distance and the dilation, matching OpenSPH's per-ray emission
-    // (chord * cosPhi^3 / distention^3). A dilated particle is larger and
-    // fainter at constant total light, and zooming out shrinks the image at
-    // constant brightness instead of concentrating the whole galaxy's light
-    // into a few saturated pixels.
+    // Volumetric splat: the per-pixel emission is the particle's column
+    // density, constant total light / world-space cross-section. The total
+    // light of a particle is thus independent of the size bounds AND of the
+    // camera distance (surface brightness invariance): resizing the clouds
+    // redistributes their light instead of dimming or blowing out the image.
     if ( uRenderPass > 1.5 ) {
         // Stars vastly outnumber the gas, so they emit less per particle to
         // keep the tone-mapped disk from saturating
-        float emission = ( isGas ? 0.2 : 0.15 ) / ( distention * distention ) * subPixel;
+        float emission = ( isGas ? 0.23 : 0.17 ) / ( splatRadius * splatRadius ) * subPixel;
         vColor = vec4( finalColor * emission, 1.0 );
     }
 }

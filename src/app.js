@@ -69,12 +69,17 @@ class GalaxyApp {
 
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 9999999999999999999);
         this.camera.position.set(15, 112, 168);
+        // The look-at point lives on the OrbitControls (created below), not on
+        // the camera; both are needed to reproduce a panned view
+        let cameraTarget = null;
         if (type === SIMULATION_TYPE.GALAXY_COLLISION
             || (this.quality === QUALITY.NORMAL && type === SIMULATION_TYPE.UNIVERSE)) {
-            this.camera.position.set(15, 456, 504);
+            this.camera.position.set(91.2, 252.6, -303.7);
+            cameraTarget = new THREE.Vector3(97.7, 67.7, 67.4);
         }
 
         this.scene = new THREE.Scene();
+        this.hideEnvironment = controller.hideEnvironment;
         this.environment = createEnvironment(this.scene, this.camera);
         this.environment.setVisible(!this.hideEnvironment);
 
@@ -84,12 +89,10 @@ class GalaxyApp {
         this.container.appendChild(this.renderer.domElement);
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-        if (type === SIMULATION_TYPE.UNIVERSE) {
-            this.controls.autoRotate = true;
-            this.controls.autoRotateSpeed = -1.0;
-        } else {
-            this.controls.autoRotate = false;
-        }
+        if (cameraTarget) this.controls.target.copy(cameraTarget);
+        this.autoRotation = controller.autoRotation;
+        this.controls.autoRotate = this.autoRotation;
+        if (type === SIMULATION_TYPE.UNIVERSE) this.controls.autoRotateSpeed = -1.0;
 
         this.computation = createComputation(this.renderer, controller, this.quality);
         this.halosMerged = false;
@@ -98,6 +101,13 @@ class GalaxyApp {
         this.stats = new Stats();
         this.container.appendChild(this.stats.dom);
         this.stats.dom.style.display = this.showStats ? '' : 'none';
+
+        // Debug overlay: live camera coordinates, bottom-right corner
+        this.cameraDebug = document.createElement('div');
+        this.cameraDebug.style.cssText = 'position:fixed;right:8px;bottom:6px;z-index:100;'
+            + 'font:10px/1.4 monospace;color:rgba(255,255,255,0.5);'
+            + 'pointer-events:none;user-select:none;text-shadow:0 1px 2px rgba(0,0,0,0.8);';
+        this.container.appendChild(this.cameraDebug);
 
         this.gui = createGUI(this);
 
@@ -284,8 +294,14 @@ class GalaxyApp {
         this.particleUniforms['uGasBrightness'].value = controller.gasBrightness;
         this.particleUniforms['uGasDensityScale'].value = controller.gasDensityScale;
         this.particleUniforms['uGasFluidRadius'].value = controller.gasFluidRadius;
+        this.particleUniforms['uGasFluidRadiusMax'].value = controller.gasFluidRadiusMax;
         this.particleUniforms['uGasNeighborTarget'].value = controller.gasFluidNeighbors;
-        this.particleUniforms['uGasMaxDistention'].value = controller.gasFluidMaxDistention;
+        // Position alone does not pin the view down: right-drag panning moves
+        // the OrbitControls look-at target too, so show both
+        const camPos = this.camera.position;
+        const camTgt = this.controls.target;
+        this.cameraDebug.textContent = `cam x ${camPos.x.toFixed(1)}  y ${camPos.y.toFixed(1)}  z ${camPos.z.toFixed(1)}`
+            + `  |  tgt x ${camTgt.x.toFixed(1)}  y ${camTgt.y.toFixed(1)}  z ${camTgt.z.toFixed(1)}`;
         this.composer.render();
     }
 }

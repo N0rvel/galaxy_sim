@@ -19,7 +19,7 @@ export const QUALITY = {
 export const BLOOM_STRENGTH_BY_TYPE = {
     [SIMULATION_TYPE.GALAXY]: 0.6,
     [SIMULATION_TYPE.UNIVERSE]: 0.7,
-    [SIMULATION_TYPE.GALAXY_COLLISION]: 1.0
+    [SIMULATION_TYPE.GALAXY_COLLISION]: 0.3
 };
 
 // Static dark matter halo (Einasto profile, applied as an analytic potential)

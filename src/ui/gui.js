@@ -113,6 +113,78 @@ function addSlider(parent, { label, min, max, step, value, onChange, restart = f
 }
 
 /**
+ * Dual-handle slider row: one track with two thumbs (low / high bound of a
+ * range) plus two editable numeric values. Guarantees low <= high.
+ */
+function addDualSlider(parent, { label, min, max, step, valueLow, valueHigh, onChange, title = '' }) {
+    const decimals = stepDecimals(step);
+    const row = el('div', 'sp-row', parent);
+    if (title) row.title = title;
+    const top = el('div', 'sp-row-top', row);
+    el('span', 'sp-label', top).textContent = label;
+    const nums = el('div', 'sp-dual-nums', top);
+    const numLo = el('input', 'sp-num sp-num-dual', nums);
+    numLo.type = 'text';
+    el('span', 'sp-dual-sep', nums).textContent = '–';
+    const numHi = el('input', 'sp-num sp-num-dual', nums);
+    numHi.type = 'text';
+
+    const track = el('div', 'sp-dual', row);
+    const lo = el('input', 'sp-dual-range', track);
+    const hi = el('input', 'sp-dual-range', track);
+    for (const range of [lo, hi]) {
+        range.type = 'range';
+        range.min = min;
+        range.max = max;
+        range.step = step;
+    }
+    lo.value = valueLow;
+    hi.value = valueHigh;
+
+    const show = () => {
+        numLo.value = Number(Number(lo.value).toFixed(decimals)).toString();
+        numHi.value = Number(Number(hi.value).toFixed(decimals)).toString();
+    };
+    const paint = () => {
+        track.style.setProperty('--sp-lo', ((Number(lo.value) - min) / (max - min)) * 100 + '%');
+        track.style.setProperty('--sp-hi', ((Number(hi.value) - min) / (max - min)) * 100 + '%');
+    };
+    const commit = () => {
+        show();
+        paint();
+        onChange(Number(lo.value), Number(hi.value));
+    };
+
+    lo.addEventListener('input', () => {
+        if (Number(lo.value) > Number(hi.value)) lo.value = hi.value;
+        commit();
+    });
+    hi.addEventListener('input', () => {
+        if (Number(hi.value) < Number(lo.value)) hi.value = lo.value;
+        commit();
+    });
+    const bindNum = (num, range, clampOther) => {
+        num.addEventListener('change', () => {
+            let v = Number(num.value.replace(',', '.'));
+            if (!Number.isFinite(v)) {
+                show();
+                return;
+            }
+            range.value = Math.min(max, Math.max(min, v));
+            clampOther();
+            commit();
+        });
+        num.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') num.blur();
+        });
+    };
+    bindNum(numLo, lo, () => { if (Number(lo.value) > Number(hi.value)) hi.value = lo.value; });
+    bindNum(numHi, hi, () => { if (Number(hi.value) < Number(lo.value)) lo.value = hi.value; });
+    show();
+    paint();
+}
+
+/**
  * Toggle row: label + switch.
  */
 function addToggle(parent, { label, value, onChange }) {
@@ -320,6 +392,7 @@ export function createGUI(app) {
         label: 'Auto-rotation',
         value: app.controls.autoRotate,
         onChange: (v) => {
+            controller.autoRotation = v;
             app.autoRotation = v;
             app.controls.autoRotate = v;
         }
@@ -490,6 +563,7 @@ export function createGUI(app) {
         label: 'Hide environment',
         value: app.hideEnvironment,
         onChange: (v) => {
+            controller.hideEnvironment = v;
             app.hideEnvironment = v;
             app.environment.setVisible(!v);
         }
@@ -528,22 +602,26 @@ export function createGUI(app) {
         value: controller.hideDarkMatter,
         onChange: (v) => { controller.hideDarkMatter = v; }
     });
+    addSlider(graphicsAdvanced, {
+        label: 'Luminosity', min: 0, max: 3, step: 0.0001, value: controller.luminosity,
+        title: 'Exposure of the particles: bright regions are tone mapped instead of clipping to white, so raising it brings out the dark colors without burning the light ones',
+        onChange: (v) => { controller.luminosity = v; sync(); }
+    });
     if (isGalaxyMode) {
-        addSlider(graphicsAdvanced, {
-            label: 'Fluid cloud size (ly)', min: 10, max: 2500, step: 10,
-            value: controller.gasFluidRadius * LY_PER_UNIT,
-            title: 'Base radius of a gas cloud splat before dilation',
-            onChange: (v) => { controller.gasFluidRadius = v / LY_PER_UNIT; }
+        addDualSlider(graphicsAdvanced, {
+            label: 'Fluid cloud size (ly)', min: 10, max: 15000, step: 10,
+            valueLow: controller.gasFluidRadius * LY_PER_UNIT,
+            valueHigh: controller.gasFluidRadiusMax * LY_PER_UNIT,
+            title: 'Cloud splat radius range: dense clouds shrink to the left handle, isolated clouds swell up to the right handle to fill the empty regions',
+            onChange: (lo, hi) => {
+                controller.gasFluidRadius = lo / LY_PER_UNIT;
+                controller.gasFluidRadiusMax = hi / LY_PER_UNIT;
+            }
         });
         addSlider(graphicsAdvanced, {
             label: 'Fluid neighbor target', min: 1, max: 32, step: 1, value: controller.gasFluidNeighbors,
             title: 'Each gas cloud grows until it covers this many neighbors: higher = smoother, mistier fluid',
             onChange: (v) => { controller.gasFluidNeighbors = v; }
-        });
-        addSlider(graphicsAdvanced, {
-            label: 'Fluid max dilation (×)', min: 1, max: 20, step: 0.5, value: controller.gasFluidMaxDistention,
-            title: 'Cap on how much an isolated gas cloud can swell to fill empty space',
-            onChange: (v) => { controller.gasFluidMaxDistention = v; }
         });
         addSlider(graphicsAdvanced, {
             label: 'Fluid brightness', min: 0, max: 6, step: 0.1, value: controller.gasFluidIntensity,
@@ -559,7 +637,7 @@ export function createGUI(app) {
             onChange: (v) => { controller.gasDensityScale = v; }
         });
         addSlider(graphicsAdvanced, {
-            label: 'Color mix (%)', min: 0.01, max: 100, step: 0.01, value: controller.maxAccelerationColorPercent,
+            label: 'Color mix (%)', min: 0.01, max: 200, step: 0.01, value: controller.maxAccelerationColorPercent,
             onChange: (v) => {
                 controller.maxAccelerationColorPercent = v;
                 controller.maxAccelerationColor = v * 10;
@@ -567,10 +645,6 @@ export function createGUI(app) {
             }
         });
     } else if (type === SIMULATION_TYPE.UNIVERSE) {
-        addSlider(graphicsAdvanced, {
-            label: 'Luminosity', min: 0, max: 1, step: 0.0001, value: controller.luminosity,
-            onChange: (v) => { controller.luminosity = v; sync(); }
-        });
         addSlider(graphicsAdvanced, {
             label: 'Color mix (%)', min: 0.01, max: 100, step: 0.01, value: controller.maxAccelerationColorPercent,
             onChange: (v) => {
