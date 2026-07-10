@@ -50,7 +50,11 @@ export function createParticles(controller, camera) {
         'uMaxAccelerationColor': { value: controller.maxAccelerationColor },
         'uLuminosity': { value: controller.luminosity },
         'uHideDarkMatter': { value: controller.hideDarkMatter },
-        'uGasMode': { value: controller.typeOfSimulation === SIMULATION_TYPE.UNIVERSE ? 0.0 : 1.0 },
+        'uGasMode': { value: 1.0 },
+        // Universe mode sizes the star splats by acceleration instead of the
+        // neighbor count: at the universe's low interaction rate the sampled
+        // neighbor counts are too sparse to drive the dilation
+        'uAccSplat': { value: controller.typeOfSimulation === SIMULATION_TYPE.UNIVERSE ? 1.0 : 0.0 },
         'uParticleSize': { value: controller.particleSize },
         'uGasBrightness': { value: controller.gasBrightness },
         'uGasDensityScale': { value: controller.gasDensityScale },

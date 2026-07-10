@@ -3,20 +3,8 @@ body{
 }
 
 a{
-  display: block;
-  text-decoration: inherit; /* no underline */
-  font-family: "Inter var",ui-sans-serif,system-ui,-apple-system,system-ui,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";
-  font-size: 1.125rem;
-  font-weight: 600;
-  border: 1px solid transparent;
-  border-radius: .75rem;
-  box-sizing: border-box;
-  color: #FFFFFF;
-  width: 520px;
-  background-color: #111827;
-  padding: 14px;
-  height: 77px;
-  fill: #FFFFFF;
+  color: inherit;
+  text-decoration: none;
 }
 
 .dg li:not(.folder){
@@ -26,89 +14,351 @@ a{
 .main-container{
   height: 100vh;
   background: black;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.button-container{
-  display: flex;
-  justify-content: center;
-  width: 100%;
-  z-index: 1;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-
-.calque{
-  z-index: 1;
-  width: 100vw;
-  height: 100vh;
-}
-
-.container-buttons{
-  display: flex;
-  justify-content: center;
-  width: 100%;
-  z-index: 1;
-  margin-top: 415px;
-  flex-wrap: wrap;
-}
-
-.button-svg{
-  display: flex;
-  align-items: center;
-}
-
-.button-svg span{
-  margin-left: 20px;
-}
-
-.button {
-  margin: 0 10px 10px 10px;
-  background-color: #111827;
-  border: 1px solid transparent;
-  border-radius: .75rem;
-  box-sizing: border-box;
-  color: #FFFFFF;
-  cursor: pointer;
-  flex: 0 0 auto;
   font-family: "Inter var",ui-sans-serif,system-ui,-apple-system,system-ui,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";
-  font-size: 1.125rem;
-  font-weight: 600;
-  line-height: 1.5rem;
-  padding: .75rem 1.2rem;
-  text-align: center;
-  text-decoration: none #6B7280 solid;
-  text-decoration-thickness: auto;
-  transition-duration: .2s;
-  transition-property: background-color,border-color,color,fill,stroke;
-  transition-timing-function: cubic-bezier(.4, 0, 0.2, 1);
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: manipulation;
-  width: 250px;
-}
-
-.button:hover, a:hover{
-  background-color: #374151;
-  cursor: pointer;
-}
-
-.button:focus {
-  box-shadow: none;
-  outline: 2px solid transparent;
-  outline-offset: 2px;
-}
-.small{
-  font-size: 11px;
+  color: #FFFFFF;
 }
 
 #fontVideo{
-  max-height: 1080px;
-  max-width: 1920px;
-  height: 100vh;
-  width: 100vw;
-  object-fit: cover;
   position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+}
+.padding-25 {
+  padding: 25px;
+  margin-bottom: 200px;
+}
+/* One-page scroll experience over the fixed video backdrop. Scrolling is
+   the interaction: the glass panels sweep across the backdrop and their
+   refraction rims follow (the canvas realigns per frame).
+   Scrolling is virtual: the container never scrolls natively (overflow
+   hidden) - landing.js translates .scroll-content instead, so browser
+   compositor scrolling (Firefox APZ) can never fight the inertial glide.
+   landing.js switches back to native overflow scrolling for touch devices
+   and reduced-motion users. */
+.landing{
+  position: relative;
+  z-index: 1;
+  height: 100vh;
+  overflow: hidden;
+  overflow-anchor: none;
+  scrollbar-width: none;
+}
+
+.landing::-webkit-scrollbar{
+  display: none;
+}
+
+.scroll-content{
+  will-change: transform;
+}
+
+.panel{
+  box-sizing: border-box;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 48px 24px;
+}
+
+/* Panels rise into place when they enter the viewport (landing.js adds
+   .in). Glass elements sit inside the .reveal wrapper so their hover
+   transform never fights the reveal transform. */
+.reveal{
+  opacity: 0;
+  transform: translateY(70px);
+  transition: opacity .8s ease var(--d, 0s),
+              transform .9s cubic-bezier(.22, 1, .36, 1) var(--d, 0s);
+}
+
+.reveal.in{
+  opacity: 1;
+  transform: none;
+}
+
+/* ---- hero ---- */
+
+.hero{
+  padding: 0;
+}
+
+.hero-inner{
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  padding: 48px 24px;
+  will-change: transform, opacity;
+}
+
+.hero h1{
+  margin: 0;
+  font-size: clamp(3.2rem, 8vw, 5.6rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -.02em;
+  text-align: center;
+}
+
+.hero-sub{
+  margin: 0;
+  font-size: clamp(1rem, 2vw, 1.3rem);
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: center;
+  color: rgba(255, 255, 255, .78);
+}
+
+.badge{
+  display: inline-flex;
+  padding: 9px 20px;
+  border-radius: 999px;
+  font-size: .8rem;
+  font-weight: 600;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .85);
+}
+
+.scroll-cue{
+  position: absolute;
+  bottom: 477px;
+  margin-left: -60px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.scroll-pill{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 22px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  cursor: pointer;
+  font-size: 40px;
+  border-radius: 40px!important;
+  padding-left: 58px;
+  text-shadow: 0 0 10px black!important;
+}
+
+.chev{
+  animation: chev-bob 1.6s ease-in-out infinite;
+}
+
+@keyframes chev-bob{
+  0%, 100%{ transform: translateY(0); }
+  50%{ transform: translateY(4px); }
+}
+
+/* ---- about ---- */
+
+.info-card{
+  max-width: 600px;
+  padding: 38px 46px;
+  border-radius: 28px;
+  text-align: center;
+}
+
+.info-card h2{
+  margin: 0 0 14px;
+  font-size: clamp(1.6rem, 3.4vw, 2.2rem);
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+
+.info-card p{
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, .8);
+}
+
+.stats{
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.stat{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 18px 30px;
+  text-align: center;
+}
+
+.stat b{
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.stat span{
+  font-size: .78rem;
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .65);
+}
+
+/* ---- mode choice ---- */
+/* Sized ~1.8x (the section is meant to fill the screen like a 180% browser
+   zoom would): every length is the base value x 1.8, including the title's
+   vw term (zoom shrinks the CSS viewport by the same factor). */
+
+#about{
+  gap: 50px;
+}
+
+.choose-title{
+  margin: 0;
+  font-size: clamp(3.25rem, 7.2vw, 4.7rem);
+  font-weight: 700;
+  letter-spacing: -.01em;
+  text-align: center;
+  text-shadow: 0 0 72px rgba(140, 150, 255, .35);
+}
+
+.mode-row{
+  display: flex;
+  gap: 40px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.mode-card{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 540px;
+  padding: 54px 61px;
+  box-sizing: border-box;
+  border-radius: 32px;
+  font-family: inherit;
+  color: #FFFFFF;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.mode-card b{
+  font-size: 2.6rem;
+  font-weight: 700;
+}
+
+.mode-card span{
+  font-size: 1.6rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, .72);
+}
+
+.github-chip{
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 20px 47px;
+  border-radius: 999px;
+  font-size: 1.7rem;
+  font-weight: 600;
+  fill: #FFFFFF;
+  cursor: pointer;
+}
+
+.github-chip svg{
+  width: 36px;
+  height: 36px;
+}
+
+/*
+ * Liquid glass surface. The real edge refraction (canvas reprojection of
+ * the video + SVG displacement filter) is injected by src/ui/liquidGlass.js;
+ * the backdrop-filter below is only a no-JS fallback.
+ */
+.liquid-glass {
+  position: relative;
+  border: none;
+  border-radius: 18px;
+  background: transparent;
+  -webkit-backdrop-filter: blur(2px) saturate(1.4);
+  backdrop-filter: blur(2px) saturate(1.4);
+  box-shadow: 0 0 60px rgb(0 0 0);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+  transition: transform .25s cubic-bezier(.4, 0, .2, 1),
+              box-shadow .25s cubic-bezier(.4, 0, .2, 1);
+}
+
+/* Tint layer. The glass canvas is a z-index:-1 child, so a plain CSS
+   background would be painted UNDER it and never show - this ::after is
+   also z-index:-1 but comes later in paint order: above the glass, below
+   the content. --glass-tint sets the resting tint (see .liquid-glass-tinted),
+   hover always lightens. */
+.liquid-glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-tint, transparent);
+  z-index: -1;
+  pointer-events: none;
+  transition: background .25s cubic-bezier(.4, 0, .2, 1);
+}
+
+.liquid-glass:hover {
+  transform: scale(1.03);
+  --glass-blur: 2;
+}
+
+.liquid-glass:hover::after {
+}
+
+/* Opt-in per element: frosted/tinted glass. Override the tint inline if
+   needed, e.g. style="--glass-tint: rgba(10, 15, 40, .45)" for smoked glass. */
+.liquid-glass-tinted {
+  --glass-tint: rgba(255, 255, 255, .14);
+  --glass-tint-hover: rgba(255, 255, 255, .2);
+}
+
+/* Opt-in per element: frosted glass - blurs the backdrop inside the glass
+   (read by liquidGlass.js, value in px). Override inline for more/less:
+   style="--glass-blur: 14" */
+/* Registered so the hover transition can interpolate it - unregistered
+   custom properties snap between values. */
+@property --glass-blur {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+.liquid-glass-blur {
+  --glass-blur: 0;
+  transition: transform .25s cubic-bezier(.4, 0, .2, 1),
+              box-shadow .25s cubic-bezier(.4, 0, .2, 1),
+              --glass-blur .6s ease;
+}
+
+.liquid-glass:active {
+  transform: scale(.97);
+}
+
+.liquid-glass:focus {
+  outline: none;
+}
+
+.liquid-glass:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, .6);
+  outline-offset: 2px;
 }

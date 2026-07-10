@@ -22,12 +22,12 @@ import {
  *   timeStep               Myr/s          timeStep           speed x
  *   interactionRate        %              interactionRate    %
  *   blackHoleForce         10^6 Msun      radius             diameter, Mly
- *   radius                 diameter, kly  softening          Mly
- *   height                 ly
+ *   radius                 diameter, kly  softening, stickyRadius,
+ *   height                 ly             gasFluidRadius(Max)  Mly
  *   softening, stickyRadius,
  *   gasFluidRadius, gasFluidRadiusMax  ly
  *   stickiness, gasFraction,
- *   velocityDispersion     %
+ *   velocityDispersion     %              (stickiness, gasFraction: % too)
  *   maxAccelerationColorPercent  "Color mix" %
  *
  * createPreset() converts them to the internal simulation units through
@@ -44,60 +44,100 @@ import {
  */
 
 const PRESETS = {
+    // Normal quality: tuned to run on modest GPUs (integrated graphics
+    // included). 14400 particles at 45% interaction rate keep the pair loop
+    // near the original 10k budget (~36M pair ops per physics step) while the
+    // disk surface density stays close to the experimental preset, so the
+    // same gas physics produces comparable structure. Neighbor-count driven
+    // values (color mix, fluid neighbor target, glow threshold) are ~9x lower
+    // than experimental because sampled counts scale with N x rate^2.
     [QUALITY.NORMAL]: {
         [SIMULATION_TYPE.GALAXY]: {
             gravity: 1,
-            interactionRate: 50,
+            interactionRate: 47.9,
+            softening: 1340,
             timeStep: 60,
             blackHoleForce: 50,
             luminosity: 1.0,
-            maxAccelerationColorPercent: 0.4,
-            gasFluidRadius: 734,
-            gasFluidRadiusMax: 5870,
-            gasFluidNeighbors: 12,
-            gasFluidIntensity: 1.0,
+            maxAccelerationColorPercent: 100,
+            stickiness: 12,
+            stickyRadius: 900,
+            gasPressure: 5.0,
+            gasFraction: 30,
+            haloMassFactor: 2.0,
+            gasDensityScale: 1.0, //gas glow threshold
+            gasFluidRadius: 390,
+            gasFluidRadiusMax: 1260,
+            gasFluidNeighbors: 32,
+            gasFluidIntensity: 0.6,
+            velocityDispersion: 0,
 
-            numberOfStars: 10000,
-            radius: 48.92,
+            numberOfStars: 14400, // 120^2
+            radius: 40,
             height: 2446,
             middleVelocity: 2,
             typeOfSimulation: SIMULATION_TYPE.GALAXY,
-            autoRotation: false
+            autoRotation: false,
+            starLowColor: '#9348f7',
+            starHighColor: '#ffffff',
+            gasDiffuseColor: '#0000ff',
+            gasDenseColor: '#ff8000'
         },
         [SIMULATION_TYPE.UNIVERSE]: {
             gravity: 1,
             interactionRate: 5,
-            timeStep: 1,
+            timeStep: 2,
             blackHoleForce: 100.0,
             luminosity: 0.25,
             maxAccelerationColorPercent: 20,
+            stickiness: 30,
+            stickyRadius: 10,
+            gasPressure: 2.0,
+            gasDensityScale: 1,
+            gasFluidRadius: 29.5,
+            gasFluidRadiusMax: 100,
+            gasFluidNeighbors: 2,
+            gasFluidIntensity: 1.7,
 
             numberOfStars: 100000,
-            radius: 20,
+            radius: 38,
             height: 5,
             middleVelocity: 2,
+            gasFraction: 0.0,
             typeOfSimulation: SIMULATION_TYPE.UNIVERSE,
             autoRotation: true
         },
         [SIMULATION_TYPE.GALAXY_COLLISION]: {
             gravity: 1,
-            interactionRate: 50,
-            timeStep: 60,
+            interactionRate: 45,
+            timeStep: 120,
+            softening: 400,
             blackHoleForce: 50,
             luminosity: 1.0,
-            maxAccelerationColorPercent: 1.5,
-            gasFluidRadius: 734,
-            gasFluidRadiusMax: 5870,
-            gasFluidNeighbors: 12,
+            maxAccelerationColorPercent: 60,
+            stickiness: 15,
+            stickyRadius: 900,
+            gasPressure: 5.0,
+            gasFraction: 30,
+            haloMassFactor: 3.0,
+            gasDensityScale: 1.0,
+            gasFluidRadius: 390,
+            gasFluidRadiusMax: 1260,
+            gasFluidNeighbors: 32,
             gasFluidIntensity: 1.0,
 
-            numberOfStars: 10000,
-            radius: 48.92,
+            numberOfStars: 14400, // 120^2 -> 7200 particles per galaxy
+            radius: 40,
             height: 2446,
             middleVelocity: 2,
             typeOfSimulation: SIMULATION_TYPE.GALAXY_COLLISION,
             autoRotation: false,
-            hideEnvironment: false
+            hideEnvironment: false,
+
+            starLowColor: '#00ffff',
+            starHighColor: '#ff80ff',
+            gasDiffuseColor: '#00ffff',
+            gasDenseColor: '#ff80ff'
         }
     },
     [QUALITY.EXPERIMENTAL]: {
@@ -132,13 +172,24 @@ const PRESETS = {
             interactionRate: 5,
             timeStep: 1,
             blackHoleForce: 100.0,
-            luminosity: 0.25,
-            maxAccelerationColorPercent: 20,
+            luminosity: 0.40,
+            maxAccelerationColorPercent: 22.38,
+            stickiness: 30,
+            stickyRadius: 10,
+            gasPressure: 2.0,
+            gasDensityScale: 1,
+            gasFluidRadius: 11,
+            gasFluidRadiusMax: 100,
+            gasFluidNeighbors: 1,
+            gasFluidIntensity: 0.2,
+            starFluid: true,
+            gasFluid: false,
 
             numberOfStars: 1000000,
             radius: 20,
             height: 5,
             middleVelocity: 2,
+            gasFraction: 0,
             typeOfSimulation: SIMULATION_TYPE.UNIVERSE,
             autoRotation: true
         },
@@ -191,6 +242,8 @@ function presetToInternal(preset, quality) {
 
     if (has('gravity')) preset.gravity *= referenceGravity(type, quality);
     if (has('interactionRate')) preset.interactionRate /= 100;
+    if (has('stickiness')) preset.stickiness /= 100;
+    if (has('gasFraction')) preset.gasFraction /= 100;
     // "Color mix" slider: the internal cap is percent x 10 in galaxy modes,
     // percent / 10 in universe mode
     if (has('maxAccelerationColorPercent')) {
@@ -202,18 +255,19 @@ function presetToInternal(preset, quality) {
         if (has('timeStep')) preset.timeStep = myrPerSecToTimeStep(preset.timeStep);
         if (has('blackHoleForce')) preset.blackHoleForce /= BH_MSUN6_PER_FORCE;
         if (has('softening')) preset.softening /= LY_PER_UNIT;
-        if (has('stickiness')) preset.stickiness /= 100;
         if (has('stickyRadius')) preset.stickyRadius /= LY_PER_UNIT;
         if (has('radius')) preset.radius /= 2 * KLY_PER_UNIT;
         if (has('height')) preset.height /= LY_PER_UNIT;
-        if (has('gasFraction')) preset.gasFraction /= 100;
         if (has('velocityDispersion')) preset.velocityDispersion /= 100;
         if (has('gasFluidRadius')) preset.gasFluidRadius /= LY_PER_UNIT;
         if (has('gasFluidRadiusMax')) preset.gasFluidRadiusMax /= LY_PER_UNIT;
     } else {
         if (has('timeStep')) preset.timeStep = speedFactorToTimeStep(preset.timeStep, referenceTimeStep());
         if (has('softening')) preset.softening /= MLY_PER_UNIT;
+        if (has('stickyRadius')) preset.stickyRadius /= MLY_PER_UNIT;
         if (has('radius')) preset.radius /= MLY_PER_UNIT;
+        if (has('gasFluidRadius')) preset.gasFluidRadius /= MLY_PER_UNIT;
+        if (has('gasFluidRadiusMax')) preset.gasFluidRadiusMax /= MLY_PER_UNIT;
     }
     return preset;
 }
@@ -258,12 +312,15 @@ export function applyPhysicsDefaults(controller) {
     if (controller.autoRotation === undefined) {
         controller.autoRotation = controller.typeOfSimulation === SIMULATION_TYPE.UNIVERSE;
     }
-    if (controller.gasFraction === undefined) controller.gasFraction = isGalaxyMode ? 0.3 : 0.0;
+    // Universe mode: a share of the particles is sticky intergalactic gas
+    // (the old inert "dark matter" population), the rest are galaxies
+    if (controller.gasFraction === undefined) controller.gasFraction = 0.3;
     if (controller.velocityDispersion === undefined) controller.velocityDispersion = 0.08;
     // Plummer softening length: particles are clouds with a physical size, not points.
-    // Universe mode needs a larger value because it previously relied on a hard
-    // per-pair acceleration cap that the softening replaces.
-    if (controller.softening === undefined) controller.softening = isGalaxyMode ? controller.radius * 0.02 : 10.0;
+    // Universe mode pairs it with the per-pair acceleration cap in the compute
+    // shader (particles are whole galaxies): softening 1.0 reproduces the
+    // original d^2 + 1 force law, the cap handles close encounters.
+    if (controller.softening === undefined) controller.softening = isGalaxyMode ? controller.radius * 0.02 : 1.0;
     // Fraction of the compressive relative velocity removed per gas-gas collision
     if (controller.stickiness === undefined) controller.stickiness = 0.5;
     if (controller.stickyRadius === undefined) controller.stickyRadius = controller.radius * 0.04;
@@ -283,10 +340,10 @@ export function applyPhysicsDefaults(controller) {
     // shrink to gasFluidRadius, isolated ones swell up to gasFluidRadiusMax),
     // the neighbor count each particle dilates to cover, and the composite
     // exposure
-    if (controller.gasFluid === undefined) controller.gasFluid = isGalaxyMode;
+    if (controller.gasFluid === undefined) controller.gasFluid = true;
     // Render the stars as volumetric splats too (same dilation model)
     if (controller.starFluid === undefined) controller.starFluid = true;
-    if (controller.gasFluidRadius === undefined) controller.gasFluidRadius = 1.5;
+    if (controller.gasFluidRadius === undefined) controller.gasFluidRadius = isGalaxyMode ? 1.5 : 0.2;
     if (controller.gasFluidRadiusMax === undefined) {
         // Back-compat: settings saved before gasFluidRadiusMax existed carry
         // the old dilation factor instead
@@ -297,8 +354,14 @@ export function applyPhysicsDefaults(controller) {
     if (controller.gasFluidIntensity === undefined) controller.gasFluidIntensity = 1.0;
     // Particle colors (hex strings for the GUI color inputs): stars ramp from
     // low to high acceleration, gas blends diffuse -> dense with local density.
-    if (controller.starLowColor === undefined) controller.starLowColor = '#0000ff';
-    if (controller.starHighColor === undefined) controller.starHighColor = '#ffffff';
+    // Universe mode keeps the original deep blue -> orange-red ramp (galaxies
+    // falling into clusters light up); galaxy modes ramp blue -> white.
+    if (controller.starLowColor === undefined) {
+        controller.starLowColor = isGalaxyMode ? '#0000ff' : '#0310fc';
+    }
+    if (controller.starHighColor === undefined) {
+        controller.starHighColor = isGalaxyMode ? '#ffffff' : '#ff6030';
+    }
     if (controller.gasDiffuseColor === undefined) controller.gasDiffuseColor = '#0000ff';
     if (controller.gasDenseColor === undefined) controller.gasDenseColor = '#ff8000';
 }

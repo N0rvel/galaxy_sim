@@ -75,6 +75,16 @@ export function myrPerSecToTimeStep(myrPerSec) {
     return TIMESTEP_REF * ratio * ratio;
 }
 
+// Universe mode: simulated megayears per wall-clock second at the reference
+// timeStep. Calibration constant: the structure-formation run (~90 s of wall
+// clock at speed 1) is read as ~13 Gyr of cosmic time.
+const MYR_PER_SEC_UNIVERSE_AT_REF = 150;
+
+/** Universe timeStep -> simulated Myr per wall-clock second. */
+export function universeTimeStepToMyrPerSec(timeStep) {
+    return MYR_PER_SEC_UNIVERSE_AT_REF * timeStepToSpeedFactor(timeStep, REFERENCE_TIMESTEP_UNIVERSE);
+}
+
 /** timeStep -> speed multiplier relative to a reference timeStep (universe mode). */
 export function timeStepToSpeedFactor(timeStep, refTimeStep) {
     return Math.sqrt(Math.max(timeStep, 0) / refTimeStep);

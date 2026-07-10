@@ -41,6 +41,10 @@ uniform float uGasNeighborTarget;
 // not in the fluid layer renders normally in the main pass
 uniform float uGasFluidOn;
 uniform float uStarFluid;
+// 1.0 in universe mode: star splats are sized by the packed acceleration
+// (highest inside clusters) instead of the neighbor count, which is too
+// sparse at the universe's low interaction rate to drive the dilation
+uniform float uAccSplat;
 // GUI-selectable colors: stars are a low->high acceleration ramp, gas blends
 // from its diffuse to its dense color with the local density
 uniform vec3 uStarLowColor;
@@ -74,8 +78,9 @@ void main() {
 
     // Particles excluded from the current render pass are moved outside the
     // clip volume so they are culled before rasterization. The fluid layer
-    // (pass 2) holds the gas and/or the stars depending on the two toggles.
-    bool inFluidLayer = uGasMode > 0.5 && ( isGas ? uGasFluidOn > 0.5 : uStarFluid > 0.5 );
+    // (pass 2) holds the gas and/or the stars depending on the two toggles;
+    // universe-mode particles all count as stars.
+    bool inFluidLayer = isGas ? uGasFluidOn > 0.5 : uStarFluid > 0.5;
     bool masked = uRenderPass > 1.5 ? !inFluidLayer : ( uRenderPass > 0.5 && inFluidLayer );
     if ( masked ) {
         gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );
@@ -95,27 +100,70 @@ void main() {
     float pointSize = uParticleSize * ( isGas ? 1.5 : 1.0 ) * cameraConstant / ( - mvPosition.z );
     float splatRadius = 1.0;
     if ( uRenderPass > 1.5 ) {
-        // Volumetric splat radius: the equal-neighbor dilation law
-        // (radius ~ neighbors^(-1/3)) remapped onto the user's radius range.
-        // dRaw is 1.0 at the neighbor target and peaks at dIso for a fully
-        // isolated particle (neighbor floor 0.5); normalizing by dIso makes
-        // both bounds attainable: dense clouds sit on uGasFluidRadius,
-        // isolated ones reach uGasFluidRadiusMax.
-        float neighbors = max( floor( acc ), 0.5 );
-        float dRaw = pow( uGasNeighborTarget / neighbors, 1.0 / 3.0 );
-        float dIso = pow( uGasNeighborTarget / 0.5, 1.0 / 3.0 );
-        float t = clamp( ( dRaw - 1.0 ) / max( dIso - 1.0, 1e-4 ), 0.0, 1.0 );
+        float t;
+        if ( uAccSplat > 0.5 && !isGas ) {
+            // Universe star (= galaxy) splats: normalized acceleration as the
+            // density proxy - clustered galaxies stay small and sharp, void
+            // galaxies swell into large faint blobs
+            t = 1.0 - fract( acc ) / 0.99;
+        } else {
+            // Volumetric splat radius: the equal-neighbor dilation law
+            // (radius ~ neighbors^(-1/3)) remapped onto the user's radius range.
+            // dRaw is 1.0 at the neighbor target and peaks at dIso for a fully
+            // isolated particle (neighbor floor 0.5); normalizing by dIso makes
+            // both bounds attainable: dense clouds sit on uGasFluidRadius,
+            // isolated ones reach uGasFluidRadiusMax.
+            float neighbors = max( floor( acc ), 0.5 );
+            float dRaw = pow( uGasNeighborTarget / neighbors, 1.0 / 3.0 );
+            float dIso = pow( uGasNeighborTarget / 0.5, 1.0 / 3.0 );
+            t = clamp( ( dRaw - 1.0 ) / max( dIso - 1.0, 1e-4 ), 0.0, 1.0 );
+        }
         splatRadius = mix( uGasFluidRadius, uGasFluidRadiusMax, t );
         // Stars are more point-like than gas clouds: smaller radius
         pointSize = splatRadius * ( isGas ? 1.0 : 0.6 ) * cameraConstant / ( - mvPosition.z );
     }
+
+    // Fill-rate guard: a splat close to the camera projects to a huge screen
+    // disc, and with additive blending a handful of those cover the viewport
+    // many times over - flying the camera into the fluid used to collapse the
+    // frame rate.
+    // - Galaxy modes: fade out (and finally cull) the clouds the camera has
+    //   entered - a flat sprite cannot represent a volume seen from inside,
+    //   and the smooth fade avoids popping.
+    // - Universe mode (uAccSplat): hard-cull anything that would cover more
+    //   than ~1/5 of the viewport height. Popping is acceptable there and the
+    //   frame rate is not: this bounds the worst-case fill per splat instead
+    //   of still rasterizing capped near-discs.
+    float nearFade = 1.0;
+    if ( uRenderPass > 1.5 ) {
+        bool cull;
+        if ( uAccSplat > 0.5 ) {
+            cull = pointSize > 0.2 * cameraConstant;
+        } else {
+            nearFade = smoothstep( 0.5 * splatRadius, 1.5 * splatRadius, - mvPosition.z );
+            cull = nearFade < 0.01;
+        }
+        if ( cull ) {
+            gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );
+            gl_PointSize = 1.0;
+            vColor = vec4( 0.0 );
+            return;
+        }
+    }
+    // Cap the screen footprint of the remaining nearby splats/sprites: the
+    // per-pixel emission is unchanged, the cloud simply stops growing as it
+    // approaches the camera
+    pointSize = min( pointSize, 0.35 * cameraConstant );
     gl_PointSize = max( pointSize, 1.0 );
 
     // Flux conservation for sub-pixel particles (galaxy modes): a particle
     // smaller than the 1-pixel minimum is drawn at 1 pixel but dimmed by its
     // true area, so zooming out fades the image smoothly instead of stacking
-    // thousands of clamped points into a solid white blob
-    float subPixel = uGasMode > 0.5 ? clamp( pointSize * pointSize, 0.0, 1.0 ) : 1.0;
+    // thousands of clamped points into a solid white blob. Universe mode
+    // (uAccSplat) keeps full alpha instead: its cluster kernels are sub-pixel
+    // at the typical camera distance, and their stacked saturation is what
+    // makes the collapsed structures glow.
+    float subPixel = ( pointSize > 0.0 && uAccSplat < 0.5 ) ? clamp( pointSize * pointSize, 0.0, 1.0 ) : 1.0;
 
     // Calculate the final position of the particle using the projection matrix
     gl_Position = projectionMatrix * mvPosition;
@@ -123,9 +171,9 @@ void main() {
     /**
     * Color
     */
-    // Galaxy-mode stars pack local density (integer part) and normalized
-    // acceleration (fractional part) in vel.w; universe mode stores the raw
-    // acceleration magnitude
+    // Stars pack local density (integer part) and normalized acceleration
+    // (fractional part) in vel.w; the raw-magnitude fallback only remains for
+    // a hypothetical uGasMode 0
     float starRamp = uGasMode > 0.5 ? fract( acc ) / 0.99 : normalized( acc );
     vec3 finalColor = vec3(0.0,0.0,0.0);
     if(isGas) {
@@ -164,7 +212,7 @@ void main() {
     if ( uRenderPass > 1.5 ) {
         // Stars vastly outnumber the gas, so they emit less per particle to
         // keep the tone-mapped disk from saturating
-        float emission = ( isGas ? 0.23 : 0.17 ) / ( splatRadius * splatRadius ) * subPixel;
+        float emission = ( isGas ? 0.23 : 0.17 ) / ( splatRadius * splatRadius ) * subPixel * nearFade;
         vColor = vec4( finalColor * emission, 1.0 );
     }
 }

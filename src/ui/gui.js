@@ -523,10 +523,33 @@ export function createGUI(app) {
             onChange: (v) => { controller.softening = v / MLY_PER_UNIT; sync(); }
         });
         addSlider(simulationAdvanced, {
+            label: 'Gas stickiness (%)', min: 0, max: 100, step: 1,
+            value: controller.stickiness * 100,
+            title: 'Share of the approach velocity lost when two gas particles collide',
+            onChange: (v) => { controller.stickiness = v / 100; sync(); }
+        });
+        addSlider(simulationAdvanced, {
+            label: 'Gas collision radius (Mly)', min: 0, max: 50, step: 0.5,
+            value: controller.stickyRadius * MLY_PER_UNIT,
+            title: 'Distance below which two gas particles collide',
+            onChange: (v) => { controller.stickyRadius = v / MLY_PER_UNIT; sync(); }
+        });
+        addSlider(simulationAdvanced, {
+            label: 'Gas pressure', min: 0, max: 30, step: 0.1, value: controller.gasPressure,
+            title: 'Short-range repulsion capping the gas density',
+            onChange: (v) => { controller.gasPressure = v; sync(); }
+        });
+        addSlider(simulationAdvanced, {
             label: 'Universe diameter (Mly)', min: 10, max: 10000, step: 10,
             value: controller.radius * MLY_PER_UNIT, restart: true,
             title: 'Millions of light-years. Initial size of the expanding region',
             onChange: (v) => { controller.radius = v / MLY_PER_UNIT; }
+        });
+        addSlider(simulationAdvanced, {
+            label: 'Gas fraction (%)', min: 0, max: 100, step: 1,
+            value: controller.gasFraction * 100, restart: true,
+            title: 'Share of the particles that are intergalactic gas instead of galaxies',
+            onChange: (v) => { controller.gasFraction = v / 100; }
         });
     }
     addNote(simulationAdvanced, '* applied on the next restart');
@@ -547,18 +570,16 @@ export function createGUI(app) {
             app.bloomPass.strength = v;
         }
     });
-    if (isGalaxyMode) {
-        addToggle(graphics, {
-            label: 'Fluid gas rendering',
-            value: controller.gasFluid,
-            onChange: (v) => { controller.gasFluid = v; }
-        });
-        addToggle(graphics, {
-            label: 'Fluid star rendering',
-            value: controller.starFluid,
-            onChange: (v) => { controller.starFluid = v; }
-        });
-    }
+    addToggle(graphics, {
+        label: 'Fluid gas rendering',
+        value: controller.gasFluid,
+        onChange: (v) => { controller.gasFluid = v; }
+    });
+    addToggle(graphics, {
+        label: isGalaxyMode ? 'Fluid star rendering' : 'Fluid galaxy rendering',
+        value: controller.starFluid,
+        onChange: (v) => { controller.starFluid = v; }
+    });
     addToggle(graphics, {
         label: 'Hide environment',
         value: app.hideEnvironment,
@@ -580,16 +601,15 @@ export function createGUI(app) {
         label: 'Stars (high acceleration)', value: controller.starHighColor,
         onChange: (v) => { controller.starHighColor = v; setColor('uStarHighColor')(v); }
     });
-    if (isGalaxyMode) {
-        addColor(graphics, {
-            label: 'Gas (diffuse)', value: controller.gasDiffuseColor,
-            onChange: (v) => { controller.gasDiffuseColor = v; setColor('uGasDiffuseColor')(v); }
-        });
-        addColor(graphics, {
-            label: 'Gas (dense, spiral arms)', value: controller.gasDenseColor,
-            onChange: (v) => { controller.gasDenseColor = v; setColor('uGasDenseColor')(v); }
-        });
-    }
+    addColor(graphics, {
+        label: 'Gas (diffuse)', value: controller.gasDiffuseColor,
+        onChange: (v) => { controller.gasDiffuseColor = v; setColor('uGasDiffuseColor')(v); }
+    });
+    addColor(graphics, {
+        label: isGalaxyMode ? 'Gas (dense, spiral arms)' : 'Gas (dense, clusters)',
+        value: controller.gasDenseColor,
+        onChange: (v) => { controller.gasDenseColor = v; setColor('uGasDenseColor')(v); }
+    });
 
     const graphicsAdvanced = addAdvanced(graphics, 'graphics');
     addToggle(graphicsAdvanced, {
@@ -598,7 +618,7 @@ export function createGUI(app) {
         onChange: (v) => { controller.motionBlur = v; }
     });
     addToggle(graphicsAdvanced, {
-        label: type === SIMULATION_TYPE.UNIVERSE ? 'Hide dark matter' : 'Hide gas',
+        label: 'Hide gas',
         value: controller.hideDarkMatter,
         onChange: (v) => { controller.hideDarkMatter = v; }
     });
@@ -618,24 +638,38 @@ export function createGUI(app) {
                 controller.gasFluidRadiusMax = hi / LY_PER_UNIT;
             }
         });
-        addSlider(graphicsAdvanced, {
-            label: 'Fluid neighbor target', min: 1, max: 32, step: 1, value: controller.gasFluidNeighbors,
-            title: 'Each gas cloud grows until it covers this many neighbors: higher = smoother, mistier fluid',
-            onChange: (v) => { controller.gasFluidNeighbors = v; }
+    } else {
+        addDualSlider(graphicsAdvanced, {
+            label: 'Fluid cloud size (Mly)', min: 0.5, max: 100, step: 0.5,
+            valueLow: controller.gasFluidRadius * MLY_PER_UNIT,
+            valueHigh: controller.gasFluidRadiusMax * MLY_PER_UNIT,
+            title: 'Splat radius range: clustered particles shrink to the left handle, void particles swell up to the right handle to fill the empty regions',
+            onChange: (lo, hi) => {
+                controller.gasFluidRadius = lo / MLY_PER_UNIT;
+                controller.gasFluidRadiusMax = hi / MLY_PER_UNIT;
+            }
         });
-        addSlider(graphicsAdvanced, {
-            label: 'Fluid brightness', min: 0, max: 6, step: 0.1, value: controller.gasFluidIntensity,
-            title: 'Exposure of the gas layer',
-            onChange: (v) => { controller.gasFluidIntensity = v; }
-        });
-        addSlider(graphicsAdvanced, {
-            label: 'Gas glow (arms)', min: 0, max: 4, step: 0.05, value: controller.gasBrightness,
-            onChange: (v) => { controller.gasBrightness = v; }
-        });
-        addSlider(graphicsAdvanced, {
-            label: 'Gas glow threshold', min: 1, max: 100, step: 0.5, value: controller.gasDensityScale,
-            onChange: (v) => { controller.gasDensityScale = v; }
-        });
+    }
+    addSlider(graphicsAdvanced, {
+        label: 'Fluid neighbor target', min: 1, max: 32, step: 1, value: controller.gasFluidNeighbors,
+        title: 'Each cloud grows until it covers this many neighbors: higher = smoother, mistier fluid',
+        onChange: (v) => { controller.gasFluidNeighbors = v; }
+    });
+    addSlider(graphicsAdvanced, {
+        label: 'Fluid brightness', min: 0, max: 6, step: 0.1, value: controller.gasFluidIntensity,
+        title: 'Exposure of the fluid layer',
+        onChange: (v) => { controller.gasFluidIntensity = v; }
+    });
+    addSlider(graphicsAdvanced, {
+        label: isGalaxyMode ? 'Gas glow (arms)' : 'Gas glow (clusters)',
+        min: 0, max: 4, step: 0.05, value: controller.gasBrightness,
+        onChange: (v) => { controller.gasBrightness = v; }
+    });
+    addSlider(graphicsAdvanced, {
+        label: 'Gas glow threshold', min: 1, max: 100, step: 0.5, value: controller.gasDensityScale,
+        onChange: (v) => { controller.gasDensityScale = v; }
+    });
+    if (isGalaxyMode) {
         addSlider(graphicsAdvanced, {
             label: 'Color mix (%)', min: 0.01, max: 200, step: 0.01, value: controller.maxAccelerationColorPercent,
             onChange: (v) => {

@@ -53,7 +53,9 @@ export function seedGalaxy(texturePosition, textureVelocity, controller) {
 /**
  * Expanding universe: particles uniformly distributed in a sphere, with a
  * radial velocity proportional to the distance from the center (Hubble-like
- * expansion pulse).
+ * expansion pulse). A gasFraction share of the particles is sticky
+ * intergalactic gas (same sticky-particle model as the galaxy modes, at
+ * megalight-year scale), the rest are galaxies.
  */
 export function seedUniverse(texturePosition, textureVelocity, controller, quality) {
     const posArray = texturePosition.image.data;
@@ -81,12 +83,12 @@ export function seedUniverse(texturePosition, textureVelocity, controller, quali
         posArray[k + 0] = x;
         posArray[k + 1] = y;
         posArray[k + 2] = z;
-        // Flag 85% of the particles as dark matter (hidden by the GUI toggle)
-        if (k > 0.85 * (posArray.length / 4)) {
-            posArray[k + 3] = 1;
-        } else {
-            posArray[k + 3] = 0;
-        }
+        // w flags gas (sticky particle model, hidden by the "Hide gas"
+        // toggle). Random, not an index threshold: the velocity shader only
+        // samples the first interactionRate fraction of the texture as
+        // sources, so a contiguous gas block would leave the sample without
+        // any gas and disable the sticky physics entirely.
+        posArray[k + 3] = Math.random() < controller.gasFraction ? 1 : 0;
 
         velArray[k + 0] = pulseScale * x;
         velArray[k + 1] = pulseScale * y;
@@ -123,7 +125,10 @@ export function seedGalaxyCollision(texturePosition, textureVelocity, controller
     const angle = -Math.PI / 4;
     const cosA = Math.cos(angle);
     const sinA = Math.sin(angle);
-    const offsetB = [200, 200, 10];
+    // Galaxy B starts 2 disk radii away on x and y (2.8 radii of separation):
+    // proportional to the disk radius so the encounter geometry (and thus the
+    // dance) is the same at every quality's galaxy size
+    const offsetB = [3 * controller.radius, 3 * controller.radius, 0.1 * controller.radius];
 
     // Element j of a galaxy stream: j = 0 is the black hole at the galaxy
     // center, the rest is the disk (galaxy B tilted around x, then offset)

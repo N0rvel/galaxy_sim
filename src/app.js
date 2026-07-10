@@ -9,6 +9,7 @@ import {
     SIMULATION_TYPE
 } from './config/constants.js';
 import { applyPhysicsDefaults, createBootPreset, createPreset } from './config/presets.js';
+import { timeStepToMyrPerSec, universeTimeStepToMyrPerSec } from './config/units.js';
 import { clearSimulationSettings, loadSimulationSettings, saveSimulationSettings } from './config/storage.js';
 import { createEnvironment } from './rendering/environment.js';
 import { GasFluid } from './rendering/gasFluid.js';
@@ -72,10 +73,17 @@ class GalaxyApp {
         // The look-at point lives on the OrbitControls (created below), not on
         // the camera; both are needed to reproduce a panned view
         let cameraTarget = null;
-        if (type === SIMULATION_TYPE.GALAXY_COLLISION
-            || (this.quality === QUALITY.NORMAL && type === SIMULATION_TYPE.UNIVERSE)) {
-            this.camera.position.set(91.2, 252.6, -303.7);
-            cameraTarget = new THREE.Vector3(97.7, 67.7, 67.4);
+        if (type === SIMULATION_TYPE.GALAXY_COLLISION) {
+            if (this.quality === QUALITY.NORMAL) {
+                this.camera.position.set(125.1, 128.3, -179.5);
+                cameraTarget = new THREE.Vector3(71.4, 57.5, 52.3);
+            } else {
+                this.camera.position.set(259.5, 248.7, -289.8);
+                cameraTarget = new THREE.Vector3(169.8, 130.5, 97.4);
+            }
+        } else if (this.quality === QUALITY.NORMAL && type === SIMULATION_TYPE.UNIVERSE) {
+            this.camera.position.set(-120.3, 72.4, -574.1);
+            cameraTarget = new THREE.Vector3(0.0, 0.0, 0.0);
         }
 
         this.scene = new THREE.Scene();
@@ -96,11 +104,23 @@ class GalaxyApp {
 
         this.computation = createComputation(this.renderer, controller, this.quality);
         this.halosMerged = false;
+        this.trackedCenter = null;
 
         // Show fps, ping, etc
         this.stats = new Stats();
         this.container.appendChild(this.stats.dom);
         this.stats.dom.style.display = this.showStats ? '' : 'none';
+
+        // Elapsed simulated time, top center: live counter of the years that
+        // have passed since the simulation (re)started
+        this.simulatedMyr = 0;
+        this.timeRateDisplay = document.createElement('div');
+        this.timeRateDisplay.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:100;'
+            + 'font:600 16px/1.4 "Segoe UI",system-ui,sans-serif;color:rgba(255,255,255,0.85);'
+            + 'letter-spacing:0.05em;white-space:nowrap;'
+            + 'pointer-events:none;user-select:none;text-shadow:0 1px 4px rgba(0,0,0,0.9);';
+        this.container.appendChild(this.timeRateDisplay);
+        this.lastTimeRateText = null;
 
         // Debug overlay: live camera coordinates, bottom-right corner
         this.cameraDebug = document.createElement('div');
@@ -215,27 +235,52 @@ class GalaxyApp {
     };
 
     /**
-     * Collision mode: watch the separation of the two black holes (particles
-     * 0 and 1 of the position texture) and, once they come closer than
-     * HALO_MERGE_RADIUS_FACTOR x radius, fuse their dark matter halos into a
-     * single one (uHalosMerged uniform, see computeShaderVelocity.glsl).
-     * Without this the two rigid halos keep re-capturing their own stars and
-     * the cores bounce off each other forever instead of forming one remnant.
+     * Track the halo anchors (the black holes carrying the analytic dark
+     * matter halos, particles 0..uHaloCount-1 of the position texture).
+     *
+     * Collision mode (two anchors):
+     *  - once they come closer than HALO_MERGE_RADIUS_FACTOR x radius, fuse
+     *    their dark matter halos into a single one (uHalosMerged uniform, see
+     *    computeShaderVelocity.glsl). Without this the two rigid halos keep
+     *    re-capturing their own stars and the cores bounce off each other
+     *    forever instead of forming one remnant.
+     *  - keep the camera centered on the pair: the view (camera + orbit
+     *    target) is translated by the frame-to-frame motion of the midpoint
+     *    between the two anchors, so the encounter and the drifting merger
+     *    remnant stay in frame while the user's orbit angle, zoom and pan
+     *    offset are preserved.
+     *
+     * The single galaxy's anchor is pinned at the origin, which is already
+     * the default orbit target: no readback needed.
      */
-    checkHaloMerge() {
-        if (this.halosMerged || !this.renderer.capabilities.isWebGL2) return;
+    trackHaloAnchors() {
+        if (!this.renderer.capabilities.isWebGL2) return;
         const uniforms = this.computation.velocityUniforms;
         if (uniforms['uHaloCount'].value < 2 || uniforms['uHaloGM'].value <= 0) return;
         const { gpuCompute, positionVariable } = this.computation;
         const pixels = new Float32Array(8);
         this.renderer.readRenderTargetPixels(gpuCompute.getCurrentRenderTarget(positionVariable), 0, 0, 2, 1, pixels);
-        const dx = pixels[0] - pixels[4];
-        const dy = pixels[1] - pixels[5];
-        const dz = pixels[2] - pixels[6];
-        const threshold = this.effectController.radius * HALO_MERGE_RADIUS_FACTOR;
-        if (dx * dx + dy * dy + dz * dz < threshold * threshold) {
-            this.halosMerged = true;
-            uniforms['uHalosMerged'].value = 1.0;
+        if (!this.halosMerged) {
+            const dx = pixels[0] - pixels[4];
+            const dy = pixels[1] - pixels[5];
+            const dz = pixels[2] - pixels[6];
+            const threshold = this.effectController.radius * HALO_MERGE_RADIUS_FACTOR;
+            if (dx * dx + dy * dy + dz * dz < threshold * threshold) {
+                this.halosMerged = true;
+                uniforms['uHalosMerged'].value = 1.0;
+            }
+        }
+        // Camera follow: center of the anchors (midpoint of the two halos)
+        const cx = 0.5 * (pixels[0] + pixels[4]);
+        const cy = 0.5 * (pixels[1] + pixels[5]);
+        const cz = 0.5 * (pixels[2] + pixels[6]);
+        if (this.trackedCenter) {
+            const delta = new THREE.Vector3(cx, cy, cz).sub(this.trackedCenter);
+            this.camera.position.add(delta);
+            this.controls.target.add(delta);
+            this.trackedCenter.set(cx, cy, cz);
+        } else {
+            this.trackedCenter = new THREE.Vector3(cx, cy, cz);
         }
     }
 
@@ -260,7 +305,14 @@ class GalaxyApp {
                 const { gpuCompute, positionVariable, velocityVariable } = this.computation;
                 this.particleUniforms['texturePosition'].value = gpuCompute.getCurrentRenderTarget(positionVariable).texture;
                 this.particleUniforms['textureVelocity'].value = gpuCompute.getCurrentRenderTarget(velocityVariable).texture;
-                this.checkHaloMerge();
+                this.trackHaloAnchors();
+                // Advance the simulated-time counter by this step's worth of
+                // megayears (the calibration reads timeStep as Myr per wall
+                // second at the nominal physics cadence)
+                const myrPerSec = Number(controller.typeOfSimulation) === SIMULATION_TYPE.UNIVERSE
+                    ? universeTimeStepToMyrPerSec(controller.timeStep)
+                    : timeStepToMyrPerSec(controller.timeStep);
+                this.simulatedMyr += myrPerSec * (PHYSICS_INTERVAL_MS / 1000);
             }
             this.particleUniforms['uMaxAccelerationColor'].value = controller.maxAccelerationColor;
         }
@@ -268,10 +320,10 @@ class GalaxyApp {
         // it independently (two GUI toggles); whatever is in the layer renders
         // into the GasFluid HDR target (variable radius + center-weighted
         // emission), leaves the main pass, and comes back tone-mapped through
-        // the composite pass.
-        const isGalaxyMode = Number(controller.typeOfSimulation) !== SIMULATION_TYPE.UNIVERSE;
-        const gasInFluid = isGalaxyMode && controller.gasFluid && !controller.hideDarkMatter;
-        const starInFluid = isGalaxyMode && controller.starFluid;
+        // the composite pass. In universe mode the "stars" are whole galaxies
+        // and the gas is the intergalactic medium.
+        const gasInFluid = controller.gasFluid && !controller.hideDarkMatter;
+        const starInFluid = controller.starFluid;
         const fluidOn = gasInFluid || starInFluid;
         this.particleUniforms['uGasFluidOn'].value = gasInFluid ? 1.0 : 0.0;
         this.particleUniforms['uStarFluid'].value = starInFluid ? 1.0 : 0.0;
@@ -296,6 +348,16 @@ class GalaxyApp {
         this.particleUniforms['uGasFluidRadius'].value = controller.gasFluidRadius;
         this.particleUniforms['uGasFluidRadiusMax'].value = controller.gasFluidRadiusMax;
         this.particleUniforms['uGasNeighborTarget'].value = controller.gasFluidNeighbors;
+        // Elapsed simulated time readout (top center), counting up in real
+        // time; freezes while paused (the counter only advances with the
+        // physics steps)
+        const timeText = `Simulation Time: ${formatSimulatedTime(this.simulatedMyr)}`;
+        if (timeText !== this.lastTimeRateText) {
+            this.timeRateDisplay.textContent = timeText;
+            this.lastTimeRateText = timeText;
+        }
+        this.timeRateDisplay.style.opacity = this.paused ? '0.45' : '1';
+
         // Position alone does not pin the view down: right-drag panning moves
         // the OrbitControls look-at target too, so show both
         const camPos = this.camera.position;
@@ -304,6 +366,16 @@ class GalaxyApp {
             + `  |  tgt x ${camTgt.x.toFixed(1)}  y ${camTgt.y.toFixed(1)}  z ${camTgt.z.toFixed(1)}`;
         this.composer.render();
     }
+}
+
+/**
+ * Human-readable elapsed simulated time from megayears:
+ * 245.7 -> "245 million years", 4580 -> "4.58 billion years".
+ */
+function formatSimulatedTime(myr) {
+    if (myr >= 1000) return `${(myr / 1000).toFixed(2)} billion years`;
+    if (myr >= 1) return `${Math.floor(myr)} million years`;
+    return `${Math.floor(myr * 1000)} thousand years`;
 }
 
 export const app = new GalaxyApp();

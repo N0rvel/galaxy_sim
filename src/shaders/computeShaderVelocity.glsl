@@ -21,6 +21,10 @@ uniform float uHaloCount;
 // which watches the black hole separation; sticky until the next restart)
 uniform float uHalosMerged;
 uniform float uGasMode;
+// Universe mode: per-pair acceleration cap (0 disables it). Particles are
+// whole galaxies, so a close pair is a merging group, not a Keplerian
+// encounter; the capped (flat) short-range force drives the clustering.
+uniform float uPairForceCap;
 uniform sampler2D uHaloProfile;
 
 
@@ -55,9 +59,9 @@ void main()	{
 
     float accColor = tmpVel.w;
 
-    // In galaxy modes the position w component flags gas particles (1.0, sticky
-    // particle model) and black holes (2.0); in universe mode it flags dark
-    // matter and uGasMode is 0
+    // The position w component flags gas particles (1.0, sticky particle
+    // model) and black holes (2.0). Universe-mode gas is the intergalactic
+    // medium, galaxy-mode gas the interstellar clouds - same model.
     bool isGas = uGasMode > 0.5 && tmpPos.w > 0.5 && tmpPos.w < 1.5;
 
     // Initialize the acceleration to zero
@@ -121,7 +125,12 @@ void main()	{
             }
 
             // Add the acceleration to the total acceleration (dPos / d^3, softened)
-            acceleration += massG * invDist * invDist * invDist * dPos;
+            vec3 pairAcc = massG * invDist * invDist * invDist * dPos;
+            if ( uPairForceCap > 0.0 ) {
+                float mag = length( pairAcc );
+                if ( mag > uPairForceCap ) pairAcc *= uPairForceCap / mag;
+            }
+            acceleration += pairAcc;
 
             // Reaction of this anchor's halo pulling on the other particle.
             // The halo center-of-mass acceleration is independent of the halo

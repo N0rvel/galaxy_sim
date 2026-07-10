@@ -62,7 +62,13 @@ export function createComputation(renderer, controller, quality) {
     velocityUniforms['uHalosMerged'] = { value: 0.0 };
     velocityUniforms['uHaloRMax'] = { value: controller.radius * HALO_RMAX_FACTOR };
     velocityUniforms['uHaloProfile'] = { value: buildHaloTexture(controller.radius) };
-    velocityUniforms['uGasMode'] = { value: type === SIMULATION_TYPE.UNIVERSE ? 0.0 : 1.0 };
+    // Every mode runs the gas model now: galaxy modes flag gas clouds, the
+    // universe flags intergalactic gas (same sticky physics at Mly scale)
+    velocityUniforms['uGasMode'] = { value: 1.0 };
+    // Universe mode caps the per-pair pull (particles are whole galaxies, a
+    // close pair is a merger): the flat force out to ~sqrt(gravity) units is
+    // what drives the clustering into groups and filaments. 0 disables it.
+    velocityUniforms['uPairForceCap'] = { value: type === SIMULATION_TYPE.UNIVERSE ? 1.0 : 0.0 };
 
     const error = gpuCompute.init();
     if (error !== null) {
