@@ -102,7 +102,8 @@ a{
 
 .hero h1{
   margin: 0;
-  font-size: clamp(3.2rem, 8vw, 5.6rem);
+  /* 230px on desktop (18vw crosses it at ~1280px wide), scales down below */
+  font-size: min(230px, 18vw);
   font-weight: 700;
   line-height: 1.05;
   letter-spacing: -.02em;
@@ -361,4 +362,70 @@ a{
 .liquid-glass:focus-visible {
   outline: 2px solid rgba(255, 255, 255, .6);
   outline-offset: 2px;
+}
+
+/* ---- small screens ----
+   The desktop layout positions the hero pieces absolutely and sizes the
+   mode section ~1.8x; on a phone everything goes back into normal flow at
+   readable sizes. */
+@media (max-width: 700px){
+  .padding-25{
+    margin-bottom: 0;
+  }
+
+  .scroll-cue{
+    position: static;
+    margin-left: 0;
+  }
+
+  .scroll-pill{
+    font-size: 24px;
+    padding: 10px 28px;
+  }
+
+  .panel{
+    padding: 48px 16px;
+  }
+
+  .choose-title{
+    font-size: clamp(2rem, 9vw, 3.25rem);
+  }
+
+  .mode-row{
+    width: 100%;
+    gap: 20px;
+  }
+
+  .mode-row > .reveal{
+    width: 100%;
+  }
+
+  .mode-card{
+    width: 100%;
+    padding: 30px 24px;
+  }
+
+  .mode-card b{
+    font-size: 1.8rem;
+  }
+
+  .mode-card span{
+    font-size: 1.05rem;
+    text-align: center;
+  }
+
+  .github-chip{
+    font-size: 1.2rem;
+    padding: 14px 30px;
+    gap: 14px;
+  }
+
+  .github-chip svg{
+    width: 28px;
+    height: 28px;
+  }
+
+  #about{
+    gap: 32px;
+  }
 }

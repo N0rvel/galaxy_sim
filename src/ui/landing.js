@@ -36,8 +36,20 @@ export function initLandingScreen() {
     }, { threshold: 0, rootMargin: '0px 0px 12% 0px' });
     container.querySelectorAll('.reveal').forEach((el) => io.observe(el));
 
+    // The backdrop video can flake out on mobile (decoder hiccup, autoplay
+    // veto): retry once on error, and (re)kick playback on the first touch.
+    const video = document.getElementById('fontVideo');
+    video.addEventListener('error', () => setTimeout(() => {
+        video.load();
+        video.play().catch(() => {});
+    }, 1000), { once: true });
+    window.addEventListener('touchend', () => {
+        if (video.paused) video.play().catch(() => {});
+    }, { once: true });
+
     // The refraction effect is decorative: if it fails (e.g. canvas data
     // blocked by privacy settings), keep the CSS blur fallback and move on.
+    // (Firefox Android takes the canvas-bridge path inside liquidGlass.js.)
     try {
         applyLiquidGlass(container.querySelectorAll('.liquid-glass, .liquid-glass-text'), container);
     } catch (err) {
@@ -56,7 +68,19 @@ export function initLandingScreen() {
     const enableNativeScroll = () => {
         landing.style.overflowY = 'auto';
         landing.addEventListener('scroll', () => applyHero(landing.scrollTop), { passive: true });
+        pill.addEventListener('click', (e) => {
+            e.preventDefault();
+            landing.scrollTo({ top: document.getElementById('about').offsetTop, behavior: 'smooth' });
+        });
     };
+
+    // Touch devices scroll natively: the compositor thread keeps flings
+    // smooth even when rAF work (glass redraws) eats into the frame budget,
+    // and the DOM-anchored glass canvases follow the content for free.
+    if (window.matchMedia('(pointer: coarse)').matches) {
+        enableNativeScroll();
+        return;
+    }
 
     // Note: prefers-reduced-motion is deliberately ignored - this page IS
     // the animation (owner's call, 2026-07-10); the whole experience exists
