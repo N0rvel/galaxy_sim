@@ -3,6 +3,10 @@ import Stats from 'three/examples/jsm/libs/stats.module';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import {
     BLOOM_STRENGTH_BY_TYPE,
+    CHUNK_FRAME_HIGH_MS,
+    CHUNK_FRAME_LOW_MS,
+    CHUNK_PAIR_BUDGET_MAX,
+    CHUNK_PAIR_BUDGET_MIN,
     HALO_MERGE_RADIUS_FACTOR,
     PHYSICS_INTERVAL_MS,
     QUALITY,
@@ -103,6 +107,11 @@ class GalaxyApp {
         if (type === SIMULATION_TYPE.UNIVERSE) this.controls.autoRotateSpeed = -1.0;
 
         this.computation = createComputation(this.renderer, controller, this.quality);
+        // Fresh computation, fresh servo: skip the compile/seed stutter and
+        // forget the previous simulation's frame-time history
+        this.servoWarmup = 0;
+        this.frameEma = null;
+        this.baseEma = null;
         this.halosMerged = false;
         this.trackedCenter = null;
 
@@ -296,23 +305,81 @@ class GalaxyApp {
         this.environment.update(performance.now() / 1000);
         if (!this.paused) {
             const now = performance.now();
-            if (now >= this.nextPhysicsTime) {
-                // Keep a fixed wall-clock physics cadence; if we fell behind by
-                // more than one interval (hidden tab, pause, slow frame), skip
-                // the missed steps instead of running catch-up compute passes
-                this.nextPhysicsTime = Math.max(this.nextPhysicsTime + PHYSICS_INTERVAL_MS, now);
-                stepSemiImplicit(this.computation);
-                const { gpuCompute, positionVariable, velocityVariable } = this.computation;
-                this.particleUniforms['texturePosition'].value = gpuCompute.getCurrentRenderTarget(positionVariable).texture;
-                this.particleUniforms['textureVelocity'].value = gpuCompute.getCurrentRenderTarget(velocityVariable).texture;
-                this.trackHaloAnchors();
-                // Advance the simulated-time counter by this step's worth of
-                // megayears (the calibration reads timeStep as Myr per wall
-                // second at the nominal physics cadence)
-                const myrPerSec = Number(controller.typeOfSimulation) === SIMULATION_TYPE.UNIVERSE
-                    ? universeTimeStepToMyrPerSec(controller.timeStep)
-                    : timeStepToMyrPerSec(controller.timeStep);
-                this.simulatedMyr += myrPerSec * (PHYSICS_INTERVAL_MS / 1000);
+            // Frame-time servo for the physics tile size: when the smoothed
+            // frame time creeps past HIGH, halve the tile budget; when it is
+            // comfortable (below LOW), regrow it toward the TDR-safe cap.
+            // The camera and the UI settle at full frame rate on any GPU;
+            // only the simulation pace absorbs the load. Smoothing (EMA) and
+            // the post-shrink reset make one-off spikes (GC, tab switch)
+            // harmless: shrinking again requires several consecutive slow
+            // frames. The warmup skips the shader-compile/seed stutter right
+            // after a (re)start, and deltas > 250 ms are ignored entirely
+            // (hidden tab, window drag — not GPU pressure).
+            const frameDelta = now - (this.lastFrameStamp ?? now);
+            this.lastFrameStamp = now;
+            this.servoWarmup = (this.servoWarmup ?? 0) + 1;
+            if (frameDelta > 0 && frameDelta < 250 && this.servoWarmup > 90) {
+                if (this.physicsDrewLastFrame) {
+                    this.frameEma = this.frameEma == null
+                        ? frameDelta
+                        : this.frameEma * 0.8 + frameDelta * 0.2;
+                    // Thresholds are relative to the render-only baseline:
+                    // when the RENDER is what costs 30 ms (huge particle
+                    // counts), shrinking physics tiles cannot help — without
+                    // this the servo starved the simulation to its floor
+                    // while gaining nothing.
+                    const base = this.baseEma ?? 0;
+                    const high = Math.max(CHUNK_FRAME_HIGH_MS, base * 1.25);
+                    const low = Math.max(CHUNK_FRAME_LOW_MS, base * 1.1);
+                    const c = this.computation;
+                    if (this.frameEma > high) {
+                        c.chunkBudget = Math.max(CHUNK_PAIR_BUDGET_MIN, c.chunkBudget * 0.5);
+                        this.frameEma = low; // re-accumulate evidence
+                    } else if (this.frameEma < low) {
+                        c.chunkBudget = Math.min(CHUNK_PAIR_BUDGET_MAX, c.chunkBudget * 1.05);
+                    }
+                } else {
+                    // No physics draw last frame: this delta samples the
+                    // render-only baseline (natural idle frames at high fps,
+                    // plus the forced probe frame below at vsync rates)
+                    this.baseEma = this.baseEma == null
+                        ? frameDelta
+                        : this.baseEma * 0.7 + frameDelta * 0.3;
+                }
+            }
+            this.physicsDrewLastFrame = false;
+            // A heavy velocity pass is tiled over several frames (TDR guard,
+            // see stepSemiImplicit): while one is in progress, advance one
+            // tile per rendered frame regardless of the physics cadence — the
+            // camera and the page keep their frame rate, the simulation just
+            // progresses more slowly.
+            const inProgress = this.computation.chunkCursor > 0;
+            // Baseline probe: once every 90 frames, skip the physics draw so
+            // the next measured delta samples the render-only frame cost
+            // (at vsync rates physics otherwise runs every single frame)
+            const probeFrame = this.servoWarmup % 90 === 0;
+            if ((inProgress || now >= this.nextPhysicsTime) && !probeFrame) {
+                if (!inProgress) {
+                    // Keep a fixed wall-clock physics cadence; if we fell
+                    // behind by more than one interval (hidden tab, pause,
+                    // slow frame), skip the missed steps instead of running
+                    // catch-up compute passes
+                    this.nextPhysicsTime = Math.max(this.nextPhysicsTime + PHYSICS_INTERVAL_MS, now);
+                }
+                this.physicsDrewLastFrame = true;
+                if (stepSemiImplicit(this.computation)) {
+                    const { gpuCompute, positionVariable, velocityVariable } = this.computation;
+                    this.particleUniforms['texturePosition'].value = gpuCompute.getCurrentRenderTarget(positionVariable).texture;
+                    this.particleUniforms['textureVelocity'].value = gpuCompute.getCurrentRenderTarget(velocityVariable).texture;
+                    this.trackHaloAnchors();
+                    // Advance the simulated-time counter by this step's worth
+                    // of megayears (the calibration reads timeStep as Myr per
+                    // wall second at the nominal physics cadence)
+                    const myrPerSec = Number(controller.typeOfSimulation) === SIMULATION_TYPE.UNIVERSE
+                        ? universeTimeStepToMyrPerSec(controller.timeStep)
+                        : timeStepToMyrPerSec(controller.timeStep);
+                    this.simulatedMyr += myrPerSec * (PHYSICS_INTERVAL_MS / 1000);
+                }
             }
             this.particleUniforms['uMaxAccelerationColor'].value = controller.maxAccelerationColor;
         }

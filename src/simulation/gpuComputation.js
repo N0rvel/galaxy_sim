@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GPUComputationRenderer } from 'three/examples/jsm/misc/GPUComputationRenderer';
 import computeShaderPosition from '../shaders/computeShaderPosition.glsl?raw';
 import computeShaderVelocity from '../shaders/computeShaderVelocity.glsl?raw';
-import { HALO_RMAX_FACTOR, SIMULATION_TYPE } from '../config/constants.js';
+import { CHUNK_PAIR_BUDGET_MAX, HALO_RMAX_FACTOR, SIMULATION_TYPE } from '../config/constants.js';
 import { buildHaloTexture } from '../physics/halo.js';
 import { seedGalaxy, seedGalaxyCollision, seedUniverse } from '../physics/seed.js';
 
@@ -76,8 +76,21 @@ export function createComputation(renderer, controller, quality) {
     }
 
     // Particle count captured at creation: the "Number of stars" slider changes
-    // the controller immediately but only takes effect after a restart
-    return { gpuCompute, positionVariable, velocityVariable, velocityUniforms, particleCount: controller.numberOfStars };
+    // the controller immediately but only takes effect after a restart.
+    // chunkCursor tracks a velocity pass split over several frames (see
+    // stepSemiImplicit); 0 means no accumulation is in progress. chunkBudget
+    // is the live tile size, servo-adjusted by the app from the measured
+    // frame time so the camera keeps its frame rate on any GPU.
+    return {
+        gpuCompute,
+        positionVariable,
+        velocityVariable,
+        velocityUniforms,
+        particleCount: controller.numberOfStars,
+        textureSize,
+        chunkCursor: 0,
+        chunkBudget: CHUNK_PAIR_BUDGET_MAX
+    };
 }
 
 /**
@@ -119,22 +132,80 @@ export function syncDynamicUniforms(computation, controller) {
  * position pass the freshly computed velocity instead makes the integrator
  * symplectic and orbits stable.
  */
+/**
+ * TDR protection: the velocity pass is issued in scissored tiles of at most
+ * CHUNK_PAIR_BUDGET pair interactions each. One call to stepSemiImplicit
+ * advances at most one tile, so no single GPU draw call can run long enough
+ * to trip the Windows driver watchdog (black screens + lost WebGL contexts)
+ * — whatever the particle count and interaction rate. While a heavy pass is
+ * being accumulated over several frames the input textures stay frozen, and
+ * the position pass + texture flip only happen once the last tile lands, so
+ * the integrator stays exactly semi-implicit. Under extreme settings the
+ * SIMULATION slows down arbitrarily far, but the page and the camera keep
+ * rendering at full frame rate between tiles.
+ *
+ * @returns true if a full physics step completed during this call
+ */
 export function stepSemiImplicit(computation) {
-    const { gpuCompute, positionVariable, velocityVariable } = computation;
+    const { gpuCompute, positionVariable, velocityVariable, textureSize } = computation;
     const cur = gpuCompute.currentTextureIndex;
     const nxt = cur === 0 ? 1 : 0;
-
-    // Velocity pass: reads previous position and velocity
+    const velRT = velocityVariable.renderTargets[nxt];
     const velUniforms = velocityVariable.material.uniforms;
-    velUniforms['texturePosition'].value = positionVariable.renderTargets[cur].texture;
-    velUniforms['textureVelocity'].value = velocityVariable.renderTargets[cur].texture;
-    gpuCompute.doRenderTarget(velocityVariable.material, velocityVariable.renderTargets[nxt]);
+    const totalPixels = textureSize * textureSize;
 
-    // Position pass: reads previous position but the NEW velocity
+    if (computation.chunkCursor === 0) {
+        // Velocity pass inputs: previous position and velocity. Bound once
+        // per pass and untouched until it completes, even if it spans frames.
+        velUniforms['texturePosition'].value = positionVariable.renderTargets[cur].texture;
+        velUniforms['textureVelocity'].value = velocityVariable.renderTargets[cur].texture;
+    }
+
+    // Each fragment loops over N x rate^2 other particles; size the tile so
+    // one draw stays within the current pair-interaction budget (min 1
+    // pixel: a single fragment is at most N interactions, always tiny).
+    const rate = velUniforms['interactionRate'].value;
+    const perPixel = Math.max(1, computation.particleCount * rate * rate);
+    const maxPixels = Math.max(1, Math.floor(computation.chunkBudget / perPixel));
+
+    if (maxPixels >= totalPixels) {
+        velRT.scissorTest = false;
+        gpuCompute.doRenderTarget(velocityVariable.material, velRT);
+        computation.chunkCursor = totalPixels;
+    } else {
+        // Scissored tile at the row-major cursor: full rows while the budget
+        // allows, single-row segments when even one row exceeds it. The
+        // renderer's scissored clear + fullscreen quad only touch the tile,
+        // so tiles from earlier frames persist in the target.
+        const cursor = computation.chunkCursor;
+        const y = Math.floor(cursor / textureSize);
+        const x = cursor % textureSize;
+        let w;
+        let h;
+        if (x === 0 && maxPixels >= textureSize) {
+            w = textureSize;
+            h = Math.min(Math.floor(maxPixels / textureSize), textureSize - y);
+        } else {
+            w = Math.min(maxPixels, textureSize - x);
+            h = 1;
+        }
+        velRT.scissorTest = true;
+        velRT.scissor.set(x, y, w, h);
+        gpuCompute.doRenderTarget(velocityVariable.material, velRT);
+        velRT.scissorTest = false;
+        computation.chunkCursor = cursor + w * h;
+    }
+
+    if (computation.chunkCursor < totalPixels) return false;
+    computation.chunkCursor = 0;
+
+    // Position pass: reads previous position but the NEW velocity — cheap
+    // (no pair loop), always a single full draw
     const posUniforms = positionVariable.material.uniforms;
     posUniforms['texturePosition'].value = positionVariable.renderTargets[cur].texture;
     posUniforms['textureVelocity'].value = velocityVariable.renderTargets[nxt].texture;
     gpuCompute.doRenderTarget(positionVariable.material, positionVariable.renderTargets[nxt]);
 
     gpuCompute.currentTextureIndex = nxt;
+    return true;
 }
