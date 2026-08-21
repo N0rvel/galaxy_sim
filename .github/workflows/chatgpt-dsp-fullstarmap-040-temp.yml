@@ -1,9 +1,9 @@
 name: Temporary FullStarmap 0.4.0 build
 
 on:
-  push:
+  pull_request:
     branches:
-      - chatgpt-dsp-fullstarmap-040-temp
+      - master
     paths:
       - 'chatgpt-build/fullstarmap/**'
       - '.github/workflows/chatgpt-dsp-fullstarmap-040-temp.yml'
