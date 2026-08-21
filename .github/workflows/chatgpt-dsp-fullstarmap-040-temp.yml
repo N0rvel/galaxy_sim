@@ -1,0 +1,27 @@
+name: Temporary FullStarmap 0.4.0 build
+
+on:
+  push:
+    branches:
+      - chatgpt-dsp-fullstarmap-040-temp
+    paths:
+      - 'chatgpt-build/fullstarmap/**'
+      - '.github/workflows/chatgpt-dsp-fullstarmap-040-temp.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore chatgpt-build/fullstarmap/FullStarmap.csproj
+      - name: Build
+        run: dotnet build chatgpt-build/fullstarmap/FullStarmap.csproj -c Release --no-restore
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: FullStarmap-0.4.0-dll
+          path: chatgpt-build/fullstarmap/bin/Release/DSP_FullStarmap.dll
