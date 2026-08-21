@@ -8,6 +8,7 @@
     <Version>0.4.0</Version>
     <RestoreAdditionalProjectSources>https://nuget.bepinex.dev/v3/index.json</RestoreAdditionalProjectSources>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <Deterministic>true</Deterministic>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="BepInEx.Core" Version="5.*" />
